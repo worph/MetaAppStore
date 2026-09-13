@@ -1,0 +1,12 @@
+[
+  {
+    "name": "Developer",
+    "font": "code-greater-than-or-equal",
+    "description": "Developer Apps"
+  },
+  {
+    "name": "Media",
+    "font": "play-circle-outline",
+    "description": "Media Apps"
+  }
+]
