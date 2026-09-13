@@ -1,0 +1,199 @@
+name: metaplugintmdb
+
+# =============================================================================
+# MetaPlugin · TMDB — the `tmdb` enrichment plugin, as a standalone app.
+#
+# A MetaMesh enrichment plugin is a HEADLESS worker: it speaks the four-verb
+# plugin HTTP contract (`/manifest`, `/health`, `/configure`, `/process`) and
+# nothing else. There is no dashboard — the web UI on this tile is the plugin's
+# own `/manifest`, which is how you confirm it is alive and what version it is.
+#
+# ⚠ WHAT CONSUMES IT. A MetaFeeder's enrichment sidecar slot: set
+# `TMDB_PLUGIN_URL` on the feeder to `http://metaplugintmdb-plugin:8080` and it uses this
+# shared instance instead of its own bundled copy. (The feeder SDK otherwise
+# DERIVES the sidecar URL from its own hostname, so the explicit variable is
+# what makes sharing possible at all.)
+# **NOT MetaSort**: MetaSort starts its own plugin containers from its
+# `plugins.yml` (`image:`) and has no URL slot, so installing this app does
+# not add a plugin to MetaSort.
+#
+# ⚠ IT HOLDS NO CREDENTIALS. The caller POSTs `/configure` with its own key
+# (TMDB token, OpenSubtitles account) before use. Two consumers sharing one
+# instance are last-writer-wins on that config — same key, no problem; different
+# keys, install a second copy.
+#
+# Everything is scoped under the `metaplugintmdb-*` prefix + the per-stack `metaplugintmdb`
+# network + /DATA/AppData/metaplugintmdb/ data root, so it installs beside the other Meta* apps with zero
+# collisions.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # metaplugintmdb-plugin — the plugin. Listens on 8080; joined to `pcs` so any
+  # consumer on the box can reach it by name. Default queue: background.
+  # ---------------------------------------------------------------------------
+  metaplugintmdb-plugin:
+    image: ghcr.io/worph/metamesh-plugin-tmdb:1.0.3
+    cpu_shares: 30
+    container_name: metaplugintmdb-plugin
+    # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
+    # instead of swap. Mirrors the limits the bundled sidecars run with.
+    mem_limit: 384m
+    memswap_limit: 384m
+    hostname: metaplugintmdb-plugin
+    restart: unless-stopped
+    user: "0:0"
+    expose:
+      - 8080
+    environment:
+      # Where the plugin writes the artefacts it produces (posters, stills,
+      # extracted subtitles) — the shared MetaCore's WebDAV over `pcs`.
+      # LOAD-BEARING: the published images resolve WebDAV from this var, and
+      # without it they log "WebDAV client unavailable" and silently write
+      # nothing. Every record then fails MetaWatch's poster gate.
+      WEBDAV_URL: "http://metacore-app:9000/webdav"
+      TZ: "$TZ"
+    volumes:
+      # Plugin cache. Persisted so a recreate does not redo work that is
+      # expensive to redo; safe to delete, it rebuilds.
+      - ${DATA_ROOT:-/DATA}/AppData/metaplugintmdb/cache:/cache:rw
+    networks:
+      - metaplugintmdb
+      - pcs
+
+  # ---------------------------------------------------------------------------
+  # AppShield gate — the plugin's `/manifest` behind Yundera OIDC SSO.
+  # container_name == subdomain prefix (the auth-registrar derives the client_id
+  # from it). Consumers still reach the plugin directly on `pcs`; this gate
+  # exists so `/process` and `/configure` are never reachable from the internet
+  # without a session.
+  # ---------------------------------------------------------------------------
+  metaplugintmdb:
+    image: ghcr.io/yundera/appshield:2.0.9
+    cpu_shares: 80
+    container_name: metaplugintmdb
+    hostname: metaplugintmdb
+    restart: unless-stopped
+    user: "0:0"
+    expose:
+      - 80
+    environment:
+      OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
+      REDIRECT_HOST_SUFFIXES: "${APP_DOMAIN},${APP_PUBLIC_IP_DASH}.nip.io,${APP_PUBLIC_IP_DASH}.sslip.io"
+      BACKEND_HOST: "metaplugintmdb-plugin"
+      BACKEND_PORT: "8080"
+      LISTEN_PORT: "80"
+    labels:
+      caddy_0: metaplugintmdb-${APP_DOMAIN}
+      caddy_0.import: gateway_tls
+      caddy_0.reverse_proxy: "{{upstreams 80}}"
+      caddy_1: metaplugintmdb-${APP_PUBLIC_IP_DASH}.nip.io
+      caddy_1.import: gateway_tls
+      caddy_1.reverse_proxy: "{{upstreams 80}}"
+      caddy_2: metaplugintmdb-${APP_PUBLIC_IP_DASH}.sslip.io
+      caddy_2.reverse_proxy: "{{upstreams 80}}"
+    depends_on:
+      - metaplugintmdb-plugin
+    networks:
+      - metaplugintmdb
+      - pcs
+
+networks:
+  metaplugintmdb:
+    name: metaplugintmdb
+    driver: bridge
+  pcs:
+    name: ${APP_NET:-pcs}
+    external: true
+
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  author: Worph Team
+  category: Developer
+  developer: Aptero Team
+  main: metaplugintmdb
+  webui_port: 80
+  index: /manifest
+
+  description:
+    en_us: |
+      **The `tmdb` enrichment plugin for MetaMesh, as its own app.**
+
+      Looks a title up on **The Movie Database** and writes the identity a record is anchored by — `tmdbid`, `imdbid`, localized titles — plus the poster and backdrop artwork.
+
+      **Bring your own key.** The plugin stores no credentials: the caller
+      POSTs its own TMDB token to `/configure` before each use.
+      **Requires MetaCore** — the artwork is written to its WebDAV, and a record
+      without a poster is hidden by MetaWatch's quality gate.
+
+      **Headless.** It answers the plugin HTTP contract — `/manifest`, `/health`,
+      `/configure`, `/process` — and has no dashboard; this tile opens its
+      `/manifest`. Point a consumer at `http://metaplugintmdb-plugin:8080`.
+
+      **Who can use it today:** a **MetaFeeder** app, through its
+      `TMDB_PLUGIN_URL` setting — one shared copy instead of one bundled per feeder.
+
+      **Not a MetaSort plugin.** MetaSort starts its own plugin containers from
+      `plugins.yml` and has no slot for a plugin URL.
+    fr_fr: |
+      **Le plugin d'enrichissement `tmdb` de MetaMesh, en app autonome.**
+
+      Recherche un titre sur **The Movie Database** et écrit l'identité d'un enregistrement — `tmdbid`, `imdbid`, titres localisés — ainsi que l'affiche et l'image d'arrière-plan.
+
+      **Sans interface.** Il répond au contrat HTTP des plugins — `/manifest`,
+      `/health`, `/configure`, `/process` — et n'a pas de tableau de bord ; cette
+      tuile ouvre son `/manifest`. Dirigez un consommateur vers
+      `http://metaplugintmdb-plugin:8080`.
+
+      **Ce n'est pas un plugin MetaSort** : MetaSort démarre ses propres
+      conteneurs de plugins depuis `plugins.yml` et n'accepte pas d'URL.
+  tagline:
+    en_us: TMDB identity and artwork for MetaMesh records
+    fr_fr: Identité et visuels TMDB pour les enregistrements MetaMesh
+
+  title:
+    en_us: MetaPlugin · TMDB
+
+  icon: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaPluginTMDB/icon.png
+  thumbnail: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaPluginTMDB/thumbnail.png
+
+  store_app_id: metaplugintmdb
+  is_uncontrolled: false
+
+  tips:
+    before_install:
+      en_us: |
+        **What this is for:** running the `tmdb` plugin **once, shared**, instead of
+        one bundled copy inside every app that needs it.
+
+        **After installing:** set `TMDB_PLUGIN_URL` to `http://metaplugintmdb-plugin:8080` in the
+        MetaFeeder app that should use it, then restart that feeder. Left unset,
+        the feeder keeps using its own bundled copy.
+
+        **It is not a MetaSort plugin.** MetaSort spawns its own plugin containers
+        from `plugins.yml` (`image:`), with no URL slot — installing this app does
+        not add `tmdb` to MetaSort.
+
+        **Requires MetaCore** on the same box: this plugin writes what it
+        produces to MetaCore's WebDAV (`http://metacore-app:9000/webdav`).
+
+        **Authentication:** the `/manifest` page is protected by Yundera's Authelia
+        (OIDC). Consumers on the `pcs` network bypass the gate by design.
+
+# Maison (Yundera dashboard) configuration. Read in preference to x-casaos.
+# schema_version 2 is required for `folders`: an older Maison refuses the app
+# outright rather than starting it without its directories.
+x-compose-app:
+  schema_version: 2
+  # Created and chowned by Maison before any image is pulled, before any hook
+  # runs and before the containers start — on the first boot and every one after.
+  # Compose would otherwise create a missing bind source as a root-owned dir.
+  folders:
+    - path: /DATA/AppData/metaplugintmdb/cache
+      user: $PUID
+      group: $PGID
+  # Same string as the caddy_0 label, so the tile link and the route agree.
+  webui-host: metaplugintmdb-${domain}
+  webui-path: "/manifest"

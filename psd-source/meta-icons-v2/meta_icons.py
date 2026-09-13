@@ -14,6 +14,9 @@ FONT_IM = "DejaVu-Sans-Bold"                       # ImageMagick name, for measu
 FONT_SVG = "DejaVu Sans, Helvetica, Arial, sans-serif"
 DARK = "#2c3038"
 ORANGE, TEAL, GOLD, GREEN, PURPLE = "#e8821e", "#00b4b4", "#dca000", "#3ca050", "#8c50c8"
+# Blue = the MetaPlugin family (headless enrichment workers). Distinct from the
+# mesh gradient's blues, which never appear inside a badge.
+BLUE = "#3a7bd5"
 W = "#ffffff"
 
 # Glyphs live in a 160x128 box, drawn white on the dark badge.
@@ -53,7 +56,51 @@ G = {
             f'<g stroke="{W}" stroke-width="11" stroke-linecap="round"><line x1="94" y1="38" x2="136" y2="38"/><line x1="94" y1="62" x2="136" y2="62"/><line x1="26" y1="94" x2="136" y2="94"/></g>',
  "magnet":  f'<path d="M26 8 v56 a54 54 0 0 0 108 0 v-56" fill="none" stroke="{W}" stroke-width="32"/>'
             f'<rect x="8" y="30" width="36" height="12" fill="{DARK}"/><rect x="116" y="30" width="36" height="12" fill="{DARK}"/>',
+ # --- MetaFeeder additions -------------------------------------------------
+ "bank":    f'<polygon fill="{W}" points="80,6 156,40 4,40"/>'
+            f'<g fill="{W}"><rect x="20" y="50" width="18" height="52"/><rect x="56" y="50" width="18" height="52"/>'
+            f'<rect x="92" y="50" width="18" height="52"/><rect x="128" y="50" width="18" height="52"/></g>'
+            f'<rect x="4" y="110" width="152" height="16" fill="{W}"/>',
+ "note":    f'<g fill="{W}"><ellipse cx="44" cy="100" rx="30" ry="22" transform="rotate(-20 44 100)"/>'
+            f'<ellipse cx="120" cy="84" rx="30" ry="22" transform="rotate(-20 120 84)"/></g>'
+            f'<g stroke="{W}" stroke-width="12"><line x1="72" y1="98" x2="72" y2="26"/>'
+            f'<line x1="148" y1="82" x2="148" y2="10"/></g>'
+            f'<polygon fill="{W}" points="72,26 148,10 148,34 72,50"/>',
+ "disc":    f'<circle cx="80" cy="64" r="58" fill="none" stroke="{W}" stroke-width="12"/>'
+            f'<circle cx="80" cy="64" r="30" fill="none" stroke="{W}" stroke-width="8"/>'
+            f'<circle cx="80" cy="64" r="10" fill="{W}"/>',
+ "video":   f'<rect x="6" y="14" width="148" height="100" rx="24" fill="{W}"/>'
+            f'<polygon fill="{DARK}" points="64,42 64,86 106,64"/>',
+ # --- MetaPlugin family ----------------------------------------------------
+ "fileinfo": f'<path d="M36 6 h66 l32 32 v80 a8 8 0 0 1 -8 8 H36 a8 8 0 0 1 -8 -8 V14 a8 8 0 0 1 8 -8z" '
+            f'fill="none" stroke="{W}" stroke-width="11" stroke-linejoin="round"/>'
+            f'<g fill="{W}"><circle cx="81" cy="58" r="7"/><rect x="74" y="72" width="14" height="34" rx="6"/></g>',
+ "film":    f'<rect x="8" y="14" width="144" height="100" rx="10" fill="none" stroke="{W}" stroke-width="11"/>'
+            f'<g fill="{W}"><rect x="22" y="28" width="16" height="16" rx="4"/><rect x="22" y="56" width="16" height="16" rx="4"/>'
+            f'<rect x="22" y="84" width="16" height="16" rx="4"/><rect x="122" y="28" width="16" height="16" rx="4"/>'
+            f'<rect x="122" y="56" width="16" height="16" rx="4"/><rect x="122" y="84" width="16" height="16" rx="4"/></g>'
+            f'<rect x="54" y="30" width="52" height="68" fill="{W}"/>',
+ "tag":     f'<path d="M144 24 H70 L14 64 L70 104 H144 a10 10 0 0 0 10 -10 V34 a10 10 0 0 0 -10 -10z" '
+            f'fill="none" stroke="{W}" stroke-width="12" stroke-linejoin="round"/>'
+            f'<circle cx="58" cy="64" r="9" fill="{W}"/>',
+ "hash":    f'<g stroke="{W}" stroke-width="16" stroke-linecap="round"><line x1="60" y1="12" x2="42" y2="116"/>'
+            f'<line x1="114" y1="12" x2="96" y2="116"/><line x1="20" y1="46" x2="136" y2="46"/>'
+            f'<line x1="14" y1="84" x2="130" y2="84"/></g>',
+ "capout":  f'<rect x="10" y="6" width="140" height="76" rx="16" fill="none" stroke="{W}" stroke-width="13"/>'
+            f'<g stroke="{W}" stroke-width="13" stroke-linecap="round"><line x1="40" y1="34" x2="120" y2="34"/>'
+            f'<line x1="56" y1="58" x2="104" y2="58"/></g>'
+            f'<g fill="none" stroke="{W}" stroke-width="13" stroke-linecap="round" stroke-linejoin="round">'
+            f'<line x1="80" y1="94" x2="80" y2="124"/><polyline points="60,106 80,126 100,106"/></g>',
+ "globe":   f'<circle cx="80" cy="64" r="56" fill="none" stroke="{W}" stroke-width="12"/>'
+            f'<ellipse cx="80" cy="64" rx="26" ry="56" fill="none" stroke="{W}" stroke-width="10"/>'
+            f'<line x1="24" y1="64" x2="136" y2="64" stroke="{W}" stroke-width="10"/>',
+ "speech":  f'<path d="M22 10 h116 a16 16 0 0 1 16 16 v54 a16 16 0 0 1 -16 16 H76 l-30 26 v-26 H22 '
+            f'a16 16 0 0 1 -16 -16 V26 a16 16 0 0 1 16 -16z" fill="{W}"/>'
+            f'<text x="80" y="78" text-anchor="middle" font-family="{FONT_SVG}" font-weight="bold" '
+            f'font-size="60" fill="{DARK}">A</text>',
+ "star":    f'<polygon fill="{W}" points="80,6 99,46 144,52 112,83 120,124 80,104 40,124 48,83 16,52 61,46"/>',
 }
+
 
 # app dir → (label, glyph, ring colour); None = neutral (no badge)
 APPS = {
@@ -76,6 +123,23 @@ APPS = {
  "MetaFeederSuwayomi": ("SUWAYOMI", "pages", ORANGE),
  "MetaFeederUsenet": ("USENET", "news", ORANGE),
  "MetaFeederTribler": ("TRIBLER", "magnet", ORANGE),
+ "MetaFeederInternetArchive": ("ARCHIVE", "bank", ORANGE),
+ "MetaFeederJamendo": ("JAMENDO", "note", ORANGE),
+ "MetaFeederMusicBrainz": ("MUSICBRAINZ", "disc", ORANGE),
+ "MetaFeederYouTube": ("YOUTUBE", "video", ORANGE),
+ # MetaPlugin family — headless enrichment workers, blue ring.
+ "MetaPluginFileInfo": ("FILE INFO", "fileinfo", BLUE),
+ "MetaPluginFFmpeg": ("FFMPEG", "film", BLUE),
+ "MetaPluginFilenameParser": ("FILENAME", "tag", BLUE),
+ "MetaPluginFullHash": ("FULL HASH", "hash", BLUE),
+ "MetaPluginTMDB": ("TMDB", "idcard", BLUE),
+ "MetaPluginSubtitle": ("SUBTITLE", "caption", BLUE),
+ "MetaPluginSubtitleExtractor": ("SUB EXTRACT", "capout", BLUE),
+ "MetaPluginStillExtractor": ("STILL", "photo", BLUE),
+ "MetaPluginOpenSubtitles": ("OPENSUBS", "globe", BLUE),
+ "MetaPluginLanguage": ("LANGUAGE", "speech", BLUE),
+ "MetaPluginAnimeDetector": ("ANIME", "star", BLUE),
+ "MetaPluginJellyfinNFO": ("NFO", "paper", BLUE),
 }
 
 BADGE_C, BADGE_R, RING = (770, 770), 226, 18

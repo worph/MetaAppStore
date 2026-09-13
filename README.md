@@ -22,9 +22,17 @@ https://github.com/Worph/MetaAppStore/archive/refs/heads/main.zip
 | Library | `MetaSort`, `MetaFuse`, `MetaStremio` |
 | Network | `MetaShare` (content transport), `MetaGateway`, `MetaGatewayShared` |
 | Clients | `MetaWatch`, `MetaWatchShared`, `MetaRead` |
-| Feeders | `MetaFeederAniList`, `MetaFeederArxiv`, `MetaFeederEuropePMC`, `MetaFeederGiphy`, `MetaFeederGutenberg`, `MetaFeederOpenSubtitles`, `MetaFeederProwlarr`, `MetaFeederSciHub`, `MetaFeederSuwayomi`, `MetaFeederTMDB`, `MetaFeederTribler`, `MetaFeederUsenet`, `MetaFeederWikiCommons` |
+| Feeders | `MetaFeederAniList`, `MetaFeederArxiv`, `MetaFeederEuropePMC`, `MetaFeederGiphy`, `MetaFeederGutenberg`, `MetaFeederInternetArchive`, `MetaFeederJamendo`, `MetaFeederMusicBrainz`, `MetaFeederOpenSubtitles`, `MetaFeederProwlarr`, `MetaFeederSciHub`, `MetaFeederSuwayomi`, `MetaFeederTMDB`, `MetaFeederTribler`, `MetaFeederUsenet`, `MetaFeederWikiCommons`, `MetaFeederYouTube` |
+| Plugins | `MetaPluginAnimeDetector`, `MetaPluginFFmpeg`, `MetaPluginFileInfo`, `MetaPluginFilenameParser`, `MetaPluginFullHash`, `MetaPluginJellyfinNFO`, `MetaPluginLanguage`, `MetaPluginOpenSubtitles`, `MetaPluginStillExtractor`, `MetaPluginSubtitle`, `MetaPluginSubtitleExtractor`, `MetaPluginTMDB` — headless enrichment workers, one per `metamesh-plugin-*` image |
 
 `MetaCore` is the dependency of every other app — install it first.
+
+A **MetaPlugin** app is headless: no dashboard, the tile opens the plugin's
+`/manifest`, and it holds no credentials of its own (the caller configures it).
+MetaSort does **not** consume these — it starts its own plugin containers from
+`plugins.yml` and has no slot for a plugin URL. Today the consumers that do take
+a URL are the MetaFeeder sidecar slots for `filename-parser`, `tmdb` and
+`opensubtitles`; each listing says where it stands.
 
 Some apps pair with non-Meta apps that remain in
 [Worph/AppStore](https://github.com/Worph/AppStore): **Suwayomi** (the chapter

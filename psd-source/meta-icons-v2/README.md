@@ -7,7 +7,11 @@ family-coloured ring, white glyph, auto-fitted label.
 
 - **Neutral** (no badge): MetaCore.
 - **Ring colours:** teal = MetaShare, orange = MetaGateway and every MetaFeeder,
-  gold = MetaSort, green = MetaFuse, purple = MetaStremio.
+  gold = MetaSort, green = MetaFuse, purple = MetaStremio, **blue = every
+  MetaPlugin** (the headless enrichment workers).
+- A glyph may be reused across two families — the ring colour and the label
+  separate them (`photo` is WikiCommons in orange and Still Extractor in blue).
+  Within one colour, never reuse a glyph.
 - MetaWatch / MetaRead (client apps) keep their half-moon icons; MetaMCP keeps its own.
 
 Regenerate (needs `python3`, `rsvg-convert`, ImageMagick `convert` + DejaVu Sans Bold):

@@ -1,0 +1,179 @@
+name: metafeederjamendo
+
+# =============================================================================
+# MetaFeeder · Jamendo — Creative-Commons music for MetaMesh.
+#
+# Opt-in: soft-skips (healthy, answers nothing) unless JAMENDO_CLIENT_ID is set.
+#
+# ⚠ Jamendo's non-commercial tier is a MONTHLY BUDGET (35,000 requests), not a
+# per-second rate. Spend it and the upstream is gone until the calendar turns —
+# a backoff does not recover it. The feeder tracks the budget itself; don't
+# raise it here without reading its consts.rs.
+#
+# It needs, over the shared `pcs` network:
+#   - the **MetaGateway** app — which must list this feeder's URL
+#     (`http://metafeederjamendo-feeder:8080`) in its feeders config so it gets discovered.
+#     Discovery is startup-only, so restart the gateway afterwards.
+#
+# Everything is scoped under the `metafeederjamendo-*` prefix + the per-stack `metafeederjamendo` network +
+# /DATA/AppData/metafeederjamendo/ data root, so it installs beside the other Meta* apps with
+# zero collisions.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # metafeederjamendo-feeder — the feeder itself. The gateway reaches it directly on
+  # `pcs` for discovery/query/compute; the human sees it through the AppShield
+  # gate below.
+  # ---------------------------------------------------------------------------
+  metafeederjamendo-feeder:
+    image: ghcr.io/worph/meta-feeder-jamendo:1.1.2
+    cpu_shares: 30
+    container_name: metafeederjamendo-feeder
+        # Bytes tier: one mp32 derivative is buffered whole before hand-off.
+        # Swap disabled (memswap_limit == mem_limit) → OOM instead of thrash.
+    mem_limit: 512m
+    memswap_limit: 512m
+    hostname: metafeederjamendo-feeder
+    restart: unless-stopped
+    user: "0:0"
+    expose:
+      - 8080
+    environment:
+      RUST_LOG: "info,meta_feeder=info,jamendo_feeder=info"
+      META_FEEDER_STATE_DIR: "/data/meta-feeder"
+      # Jamendo is opt-in. Blank → the feeder soft-skips. This image has no
+      # config-UI field for the client id yet, so it is read from the environment.
+      JAMENDO_CLIENT_ID: "${JAMENDO_CLIENT_ID:-}"
+      TZ: "$TZ"
+    volumes:
+      # Persist feeder config.json + redb cache so it survives recreate.
+      - ${DATA_ROOT:-/DATA}/AppData/metafeederjamendo/state:/data/meta-feeder:rw
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - metafeederjamendo
+      - pcs
+
+  # ---------------------------------------------------------------------------
+  # AppShield gate — the feeder's config page behind Yundera OIDC SSO.
+  # container_name == subdomain prefix (the auth-registrar derives the client_id
+  # from it). The gateway still reaches the feeder directly on `pcs`; index → /config.
+  # ---------------------------------------------------------------------------
+  metafeederjamendo:
+    image: ghcr.io/yundera/appshield:2.0.9
+    cpu_shares: 80
+    container_name: metafeederjamendo
+    hostname: metafeederjamendo
+    restart: unless-stopped
+    user: "0:0"
+    expose:
+      - 80
+    environment:
+      OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
+      REDIRECT_HOST_SUFFIXES: "${APP_DOMAIN},${APP_PUBLIC_IP_DASH}.nip.io,${APP_PUBLIC_IP_DASH}.sslip.io"
+      BACKEND_HOST: "metafeederjamendo-feeder"
+      BACKEND_PORT: "8080"
+      LISTEN_PORT: "80"
+    labels:
+      caddy_0: metafeederjamendo-${APP_DOMAIN}
+      caddy_0.import: gateway_tls
+      caddy_0.reverse_proxy: "{{upstreams 80}}"
+      caddy_1: metafeederjamendo-${APP_PUBLIC_IP_DASH}.nip.io
+      caddy_1.import: gateway_tls
+      caddy_1.reverse_proxy: "{{upstreams 80}}"
+      caddy_2: metafeederjamendo-${APP_PUBLIC_IP_DASH}.sslip.io
+      caddy_2.reverse_proxy: "{{upstreams 80}}"
+    depends_on:
+      - metafeederjamendo-feeder
+    networks:
+      - metafeederjamendo
+      - pcs
+
+networks:
+  metafeederjamendo:
+    name: metafeederjamendo
+    driver: bridge
+  pcs:
+    name: ${APP_NET:-pcs}
+    external: true
+
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  author: Worph Team
+  category: Media
+  developer: Aptero Team
+  main: metafeederjamendo
+  webui_port: 80
+  index: /config
+
+  description:
+    en_us: |
+      **Creative-Commons music for the MetaMesh network.**
+
+      MetaFeeder · Jamendo bridges **Jamendo**'s Creative-Commons catalogue into
+      MetaMesh as a *bytes* tier: tracks are fetched and seeded to the swarm.
+
+      **Opt-in.** It needs a free Jamendo client id; without one it stays healthy
+      and simply finds nothing. Jamendo's non-commercial tier is a **monthly
+      budget** (35,000 requests), not a rate limit — the feeder paces itself
+      against it.
+      **Requires:** **MetaGateway** — its meta-core stores the resolved records and
+      announces them to the swarm. The gateway must list this feeder in its config.
+    fr_fr: |
+      **La musique Creative Commons pour le réseau MetaMesh.**
+
+      MetaFeeder · Jamendo connecte le catalogue Creative Commons de **Jamendo**
+      à MetaMesh : les morceaux sont récupérés puis partagés au swarm.
+
+      **Sur activation** : nécessite un identifiant client Jamendo gratuit ; sans
+      lui, le feeder reste sain et ne trouve rien. Le quota Jamendo est **mensuel**
+      (35 000 requêtes). **Nécessite** l'app **MetaGateway**.
+  tagline:
+    en_us: Jamendo Creative-Commons music for MetaMesh (client id required)
+    fr_fr: Musique Creative Commons Jamendo pour MetaMesh (identifiant client requis)
+
+  title:
+    en_us: MetaFeeder · Jamendo
+
+  icon: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaFeederJamendo/icon.png
+  thumbnail: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaFeederJamendo/thumbnail.png
+
+  store_app_id: metafeederjamendo
+  is_uncontrolled: false
+
+  tips:
+    before_install:
+      en_us: |
+        **Install order:** install **MetaGateway** first (its meta-core stores and
+        announces what this feeder finds).
+
+        **After installing this app:** in **MetaGateway**, add this feeder from the
+        dashboard's *Add a feeder* box — name `jamendo-feeder`, URL `http://metafeederjamendo-feeder:8080`.
+        The gateway restarts itself: feeder discovery is startup-only.
+        **Client id:** register a free app at developer.jamendo.com, set
+        `JAMENDO_CLIENT_ID` in this app's environment, then restart the app.
+        Without it the feeder soft-skips. Pairs with **MetaListen**.
+        **Authentication:** the config UI is protected by Yundera's Authelia (OIDC).
+
+# Maison (Yundera dashboard) configuration. Read in preference to x-casaos.
+# schema_version 2 is required for `folders`: an older Maison refuses the app
+# outright rather than starting it without its directories.
+x-compose-app:
+  schema_version: 2
+  # Created and chowned by Maison before any image is pulled, before any hook
+  # runs and before the containers start — on the first boot and every one after.
+  # Compose would otherwise create a missing bind source as a root-owned dir.
+  folders:
+    - path: /DATA/AppData/metafeederjamendo/state
+      user: $PUID
+      group: $PGID
+  # Same string as the caddy_0 label, so the tile link and the route agree.
+  webui-host: metafeederjamendo-${domain}
+  webui-path: "/config"

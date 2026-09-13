@@ -1,0 +1,186 @@
+name: metapluginfilenameparser
+
+# =============================================================================
+# MetaPlugin · Filename Parser — the `filename-parser` enrichment plugin, as a standalone app.
+#
+# A MetaMesh enrichment plugin is a HEADLESS worker: it speaks the four-verb
+# plugin HTTP contract (`/manifest`, `/health`, `/configure`, `/process`) and
+# nothing else. There is no dashboard — the web UI on this tile is the plugin's
+# own `/manifest`, which is how you confirm it is alive and what version it is.
+#
+# ⚠ WHAT CONSUMES IT. A MetaFeeder's enrichment sidecar slot: set
+# `FILENAME_PARSER_URL` on the feeder to `http://metapluginfilenameparser-plugin:8080` and it uses this
+# shared instance instead of its own bundled copy. (The feeder SDK otherwise
+# DERIVES the sidecar URL from its own hostname, so the explicit variable is
+# what makes sharing possible at all.)
+# **NOT MetaSort**: MetaSort starts its own plugin containers from its
+# `plugins.yml` (`image:`) and has no URL slot, so installing this app does
+# not add a plugin to MetaSort.
+#
+# ⚠ IT HOLDS NO CREDENTIALS. The caller POSTs `/configure` with its own key
+# (TMDB token, OpenSubtitles account) before use. Two consumers sharing one
+# instance are last-writer-wins on that config — same key, no problem; different
+# keys, install a second copy.
+#
+# Everything is scoped under the `metapluginfilenameparser-*` prefix + the per-stack `metapluginfilenameparser`
+# network, so it installs beside the other Meta* apps with zero
+# collisions.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # metapluginfilenameparser-plugin — the plugin. Listens on 8080; joined to `pcs` so any
+  # consumer on the box can reach it by name. Default queue: fast.
+  # ---------------------------------------------------------------------------
+  metapluginfilenameparser-plugin:
+    image: ghcr.io/worph/metamesh-plugin-filename-parser:1.0.3
+    cpu_shares: 30
+    container_name: metapluginfilenameparser-plugin
+    # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
+    # instead of swap. Mirrors the limits the bundled sidecars run with.
+    mem_limit: 256m
+    memswap_limit: 256m
+    hostname: metapluginfilenameparser-plugin
+    restart: unless-stopped
+    user: "0:0"
+    expose:
+      - 8080
+    environment:
+      # ⚠ CONSUMER-SPECIFIC, and the one reason not to share a single instance
+      # between a gateway feeder and MetaSort. These are title *guesses*
+      # (quality / codec / languages). A gateway feeder has no real file and
+      # wants them (`true`); MetaSort probes the real stream and must NOT have
+      # them, or a guessed `languages/<iso>` member pollutes the probed set.
+      # Blank = off = the plugin's own default, which is MetaSort's semantics.
+      EMIT_TITLE_TAGS: "${EMIT_TITLE_TAGS:-}"
+      TZ: "$TZ"
+    networks:
+      - metapluginfilenameparser
+      - pcs
+
+  # ---------------------------------------------------------------------------
+  # AppShield gate — the plugin's `/manifest` behind Yundera OIDC SSO.
+  # container_name == subdomain prefix (the auth-registrar derives the client_id
+  # from it). Consumers still reach the plugin directly on `pcs`; this gate
+  # exists so `/process` and `/configure` are never reachable from the internet
+  # without a session.
+  # ---------------------------------------------------------------------------
+  metapluginfilenameparser:
+    image: ghcr.io/yundera/appshield:2.0.9
+    cpu_shares: 80
+    container_name: metapluginfilenameparser
+    hostname: metapluginfilenameparser
+    restart: unless-stopped
+    user: "0:0"
+    expose:
+      - 80
+    environment:
+      OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
+      REDIRECT_HOST_SUFFIXES: "${APP_DOMAIN},${APP_PUBLIC_IP_DASH}.nip.io,${APP_PUBLIC_IP_DASH}.sslip.io"
+      BACKEND_HOST: "metapluginfilenameparser-plugin"
+      BACKEND_PORT: "8080"
+      LISTEN_PORT: "80"
+    labels:
+      caddy_0: metapluginfilenameparser-${APP_DOMAIN}
+      caddy_0.import: gateway_tls
+      caddy_0.reverse_proxy: "{{upstreams 80}}"
+      caddy_1: metapluginfilenameparser-${APP_PUBLIC_IP_DASH}.nip.io
+      caddy_1.import: gateway_tls
+      caddy_1.reverse_proxy: "{{upstreams 80}}"
+      caddy_2: metapluginfilenameparser-${APP_PUBLIC_IP_DASH}.sslip.io
+      caddy_2.reverse_proxy: "{{upstreams 80}}"
+    depends_on:
+      - metapluginfilenameparser-plugin
+    networks:
+      - metapluginfilenameparser
+      - pcs
+
+networks:
+  metapluginfilenameparser:
+    name: metapluginfilenameparser
+    driver: bridge
+  pcs:
+    name: ${APP_NET:-pcs}
+    external: true
+
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  author: Worph Team
+  category: Developer
+  developer: Aptero Team
+  main: metapluginfilenameparser
+  webui_port: 80
+  index: /manifest
+
+  description:
+    en_us: |
+      **The `filename-parser` enrichment plugin for MetaMesh, as its own app.**
+
+      Parses a release filename into title, season, episode, year and quality.
+
+      ⚠ **One instance cannot serve both a gateway feeder and MetaSort.**
+      `EMIT_TITLE_TAGS` is a process-level switch, and the two want opposite
+      values — see this app's environment. Install a second copy, or keep the
+      feeder's bundled sidecar, rather than flipping it back and forth.
+
+      **Headless.** It answers the plugin HTTP contract — `/manifest`, `/health`,
+      `/configure`, `/process` — and has no dashboard; this tile opens its
+      `/manifest`. Point a consumer at `http://metapluginfilenameparser-plugin:8080`.
+
+      **Who can use it today:** a **MetaFeeder** app, through its
+      `FILENAME_PARSER_URL` setting — one shared copy instead of one bundled per feeder.
+
+      **Not a MetaSort plugin.** MetaSort starts its own plugin containers from
+      `plugins.yml` and has no slot for a plugin URL.
+    fr_fr: |
+      **Le plugin d'enrichissement `filename-parser` de MetaMesh, en app autonome.**
+
+      Analyse un nom de fichier de release en titre, saison, épisode, année et qualité.
+
+      **Sans interface.** Il répond au contrat HTTP des plugins — `/manifest`,
+      `/health`, `/configure`, `/process` — et n'a pas de tableau de bord ; cette
+      tuile ouvre son `/manifest`. Dirigez un consommateur vers
+      `http://metapluginfilenameparser-plugin:8080`.
+
+      **Ce n'est pas un plugin MetaSort** : MetaSort démarre ses propres
+      conteneurs de plugins depuis `plugins.yml` et n'accepte pas d'URL.
+  tagline:
+    en_us: Filename → title, season, episode, year, quality
+    fr_fr: Nom de fichier → titre, saison, épisode, année, qualité
+
+  title:
+    en_us: MetaPlugin · Filename Parser
+
+  icon: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaPluginFilenameParser/icon.png
+  thumbnail: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaPluginFilenameParser/thumbnail.png
+
+  store_app_id: metapluginfilenameparser
+  is_uncontrolled: false
+
+  tips:
+    before_install:
+      en_us: |
+        **What this is for:** running the `filename-parser` plugin **once, shared**, instead of
+        one bundled copy inside every app that needs it.
+
+        **After installing:** set `FILENAME_PARSER_URL` to `http://metapluginfilenameparser-plugin:8080` in the
+        MetaFeeder app that should use it, then restart that feeder. Left unset,
+        the feeder keeps using its own bundled copy.
+
+        **It is not a MetaSort plugin.** MetaSort spawns its own plugin containers
+        from `plugins.yml` (`image:`), with no URL slot — installing this app does
+        not add `filename-parser` to MetaSort.
+
+        **Authentication:** the `/manifest` page is protected by Yundera's Authelia
+        (OIDC). Consumers on the `pcs` network bypass the gate by design.
+
+# Maison (Yundera dashboard) configuration. Read in preference to x-casaos.
+# schema_version 2 is required for `folders`: an older Maison refuses the app
+# outright rather than starting it without its directories.
+x-compose-app:
+  schema_version: 2
+  # Same string as the caddy_0 label, so the tile link and the route agree.
+  webui-host: metapluginfilenameparser-${domain}
+  webui-path: "/manifest"

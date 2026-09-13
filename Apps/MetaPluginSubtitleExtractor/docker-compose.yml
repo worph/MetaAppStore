@@ -1,0 +1,195 @@
+name: metapluginsubtitleextractor
+
+# =============================================================================
+# MetaPlugin · Subtitle Extractor — the `subtitle-extractor` enrichment plugin, as a standalone app.
+#
+# A MetaMesh enrichment plugin is a HEADLESS worker: it speaks the four-verb
+# plugin HTTP contract (`/manifest`, `/health`, `/configure`, `/process`) and
+# nothing else. There is no dashboard — the web UI on this tile is the plugin's
+# own `/manifest`, which is how you confirm it is alive and what version it is.
+#
+# ⚠ NOTHING IN THE FAMILY CONSUMES IT BY URL YET — install it knowing that.
+# MetaSort starts its own plugin containers from `plugins.yml` (`image:`) and
+# has no URL slot. The feeder SDK has exactly three sidecar slots
+# (`FILENAME_PARSER_URL`, `TMDB_PLUGIN_URL`, `OPENSUBTITLES_PLUGIN_URL`) and
+# `subtitle-extractor` is not one of them. What this app gives you today is the plugin
+# running and addressable at `http://metapluginsubtitleextractor-plugin:8080` for anything that
+# speaks the four-verb plugin contract — your own caller, a probe, a future
+# consumer. It is packaging ahead of the consumer, on purpose.
+#
+# ⚠ IT HOLDS NO CREDENTIALS. The caller POSTs `/configure` with its own key
+# (TMDB token, OpenSubtitles account) before use. Two consumers sharing one
+# instance are last-writer-wins on that config — same key, no problem; different
+# keys, install a second copy.
+#
+# Everything is scoped under the `metapluginsubtitleextractor-*` prefix + the per-stack `metapluginsubtitleextractor`
+# network + /DATA/AppData/metapluginsubtitleextractor/ data root, so it installs beside the other Meta* apps with zero
+# collisions.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # metapluginsubtitleextractor-plugin — the plugin. Listens on 8080; joined to `pcs` so any
+  # consumer on the box can reach it by name. Default queue: background.
+  # ---------------------------------------------------------------------------
+  metapluginsubtitleextractor-plugin:
+    image: ghcr.io/worph/metamesh-plugin-subtitle-extractor:1.0.0
+    cpu_shares: 30
+    container_name: metapluginsubtitleextractor-plugin
+    # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
+    # instead of swap. Mirrors the limits the bundled sidecars run with.
+    mem_limit: 512m
+    memswap_limit: 512m
+    hostname: metapluginsubtitleextractor-plugin
+    restart: unless-stopped
+    user: "0:0"
+    expose:
+      - 8080
+    environment:
+      # Where the plugin writes the artefacts it produces (posters, stills,
+      # extracted subtitles) — the shared MetaCore's WebDAV over `pcs`.
+      # LOAD-BEARING: the published images resolve WebDAV from this var, and
+      # without it they log "WebDAV client unavailable" and silently write
+      # nothing. Every record then fails MetaWatch's poster gate.
+      WEBDAV_URL: "http://metacore-app:9000/webdav"
+      TZ: "$TZ"
+    volumes:
+      # Plugin cache. Persisted so a recreate does not redo work that is
+      # expensive to redo; safe to delete, it rebuilds.
+      - ${DATA_ROOT:-/DATA}/AppData/metapluginsubtitleextractor/cache:/cache:rw
+    networks:
+      - metapluginsubtitleextractor
+      - pcs
+
+  # ---------------------------------------------------------------------------
+  # AppShield gate — the plugin's `/manifest` behind Yundera OIDC SSO.
+  # container_name == subdomain prefix (the auth-registrar derives the client_id
+  # from it). Consumers still reach the plugin directly on `pcs`; this gate
+  # exists so `/process` and `/configure` are never reachable from the internet
+  # without a session.
+  # ---------------------------------------------------------------------------
+  metapluginsubtitleextractor:
+    image: ghcr.io/yundera/appshield:2.0.9
+    cpu_shares: 80
+    container_name: metapluginsubtitleextractor
+    hostname: metapluginsubtitleextractor
+    restart: unless-stopped
+    user: "0:0"
+    expose:
+      - 80
+    environment:
+      OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
+      REDIRECT_HOST_SUFFIXES: "${APP_DOMAIN},${APP_PUBLIC_IP_DASH}.nip.io,${APP_PUBLIC_IP_DASH}.sslip.io"
+      BACKEND_HOST: "metapluginsubtitleextractor-plugin"
+      BACKEND_PORT: "8080"
+      LISTEN_PORT: "80"
+    labels:
+      caddy_0: metapluginsubtitleextractor-${APP_DOMAIN}
+      caddy_0.import: gateway_tls
+      caddy_0.reverse_proxy: "{{upstreams 80}}"
+      caddy_1: metapluginsubtitleextractor-${APP_PUBLIC_IP_DASH}.nip.io
+      caddy_1.import: gateway_tls
+      caddy_1.reverse_proxy: "{{upstreams 80}}"
+      caddy_2: metapluginsubtitleextractor-${APP_PUBLIC_IP_DASH}.sslip.io
+      caddy_2.reverse_proxy: "{{upstreams 80}}"
+    depends_on:
+      - metapluginsubtitleextractor-plugin
+    networks:
+      - metapluginsubtitleextractor
+      - pcs
+
+networks:
+  metapluginsubtitleextractor:
+    name: metapluginsubtitleextractor
+    driver: bridge
+  pcs:
+    name: ${APP_NET:-pcs}
+    external: true
+
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  author: Worph Team
+  category: Developer
+  developer: Aptero Team
+  main: metapluginsubtitleextractor
+  webui_port: 80
+  index: /manifest
+
+  description:
+    en_us: |
+      **The `subtitle-extractor` enrichment plugin for MetaMesh, as its own app.**
+
+      Extracts text subtitle tracks embedded inside a video container, writes them out as sidecars and links them back to the video.
+
+      ⚠ **Known cost:** one full read of the video per run. It is on the
+      background queue for that reason, and on a peer that also serves playback
+      that read competes with streaming.
+
+      **Headless.** It answers the plugin HTTP contract — `/manifest`, `/health`,
+      `/configure`, `/process` — and has no dashboard; this tile opens its
+      `/manifest`. Point a consumer at `http://metapluginsubtitleextractor-plugin:8080`.
+
+      ⚠ **No MetaMesh app calls it by URL yet.** MetaSort starts its own plugin
+      containers from `plugins.yml`, and the MetaFeeder SDK's sidecar slots cover
+      only filename-parser, TMDB and OpenSubtitles — not `subtitle-extractor`. Installing this
+      gives you the plugin running and addressable on the `pcs` network for
+      anything that speaks the plugin contract; it does **not** add `subtitle-extractor` to
+      MetaSort.
+    fr_fr: |
+      **Le plugin d'enrichissement `subtitle-extractor` de MetaMesh, en app autonome.**
+
+      Extrait les pistes de sous-titres texte intégrées à un conteneur vidéo, les écrit en fichiers séparés et les relie à la vidéo.
+
+      **Sans interface.** Il répond au contrat HTTP des plugins — `/manifest`,
+      `/health`, `/configure`, `/process` — et n'a pas de tableau de bord ; cette
+      tuile ouvre son `/manifest`. Dirigez un consommateur vers
+      `http://metapluginsubtitleextractor-plugin:8080`.
+
+      **Ce n'est pas un plugin MetaSort** : MetaSort démarre ses propres
+      conteneurs de plugins depuis `plugins.yml` et n'accepte pas d'URL.
+  tagline:
+    en_us: Extracts embedded text subtitles out of video containers
+    fr_fr: Extrait les sous-titres texte intégrés aux conteneurs vidéo
+
+  title:
+    en_us: MetaPlugin · Subtitle Extractor
+
+  icon: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaPluginSubtitleExtractor/icon.png
+  thumbnail: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaPluginSubtitleExtractor/thumbnail.png
+
+  store_app_id: metapluginsubtitleextractor
+  is_uncontrolled: false
+
+  tips:
+    before_install:
+      en_us: |
+        ⚠ **Read this first: nothing calls `subtitle-extractor` by URL yet.** MetaSort spawns
+        its own plugin containers from `plugins.yml` (`image:`) and has no URL
+        slot, and the MetaFeeder SDK's three sidecar slots are filename-parser,
+        TMDB and OpenSubtitles only. Install this if you want `subtitle-extractor` running and
+        addressable at `http://metapluginsubtitleextractor-plugin:8080` for your own caller — not
+        expecting it to light up MetaSort or a MetaFeeder on its own.
+
+        **Requires MetaCore** on the same box: this plugin writes what it
+        produces to MetaCore's WebDAV (`http://metacore-app:9000/webdav`).
+
+        **Authentication:** the `/manifest` page is protected by Yundera's Authelia
+        (OIDC). Consumers on the `pcs` network bypass the gate by design.
+
+# Maison (Yundera dashboard) configuration. Read in preference to x-casaos.
+# schema_version 2 is required for `folders`: an older Maison refuses the app
+# outright rather than starting it without its directories.
+x-compose-app:
+  schema_version: 2
+  # Created and chowned by Maison before any image is pulled, before any hook
+  # runs and before the containers start — on the first boot and every one after.
+  # Compose would otherwise create a missing bind source as a root-owned dir.
+  folders:
+    - path: /DATA/AppData/metapluginsubtitleextractor/cache
+      user: $PUID
+      group: $PGID
+  # Same string as the caddy_0 label, so the tile link and the route agree.
+  webui-host: metapluginsubtitleextractor-${domain}
+  webui-path: "/manifest"

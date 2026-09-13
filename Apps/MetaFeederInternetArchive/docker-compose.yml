@@ -1,0 +1,172 @@
+name: metafeederinternetarchive
+
+# =============================================================================
+# MetaFeeder · Internet Archive — free audio from archive.org for MetaMesh.
+#
+# Bridges the Internet Archive's open audio collections (etree live recordings,
+# netlabels, 78rpm transfers) into MetaMesh. Keyless and open: no account, no
+# API key, nothing to configure. Covers are taken from the archive's own
+# thumbnail service, which answers for every item — without a cover the
+# consumer's quality gate would drop the whole free tier into the raw bucket.
+#
+# It needs, over the shared `pcs` network:
+#   - the **MetaGateway** app — which must list this feeder's URL
+#     (`http://metafeederinternetarchive-feeder:8080`) in its feeders config so it gets discovered.
+#     Discovery is startup-only, so restart the gateway afterwards.
+#
+# Everything is scoped under the `metafeederinternetarchive-*` prefix + the per-stack `metafeederinternetarchive` network +
+# /DATA/AppData/metafeederinternetarchive/ data root, so it installs beside the other Meta* apps with
+# zero collisions.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # metafeederinternetarchive-feeder — the feeder itself. The gateway reaches it directly on
+  # `pcs` for discovery/query/compute; the human sees it through the AppShield
+  # gate below.
+  # ---------------------------------------------------------------------------
+  metafeederinternetarchive-feeder:
+    image: ghcr.io/worph/meta-feeder-internetarchive:1.1.2
+    cpu_shares: 30
+    container_name: metafeederinternetarchive-feeder
+        # Bytes tier: a single archive item can list hundreds of files and one
+        # track is buffered whole before it is handed over, so 256m (the identity
+        # feeders' figure) is too tight. Swap disabled → OOM instead of thrash.
+    mem_limit: 512m
+    memswap_limit: 512m
+    hostname: metafeederinternetarchive-feeder
+    restart: unless-stopped
+    user: "0:0"
+    expose:
+      - 8080
+    environment:
+      RUST_LOG: "info,meta_feeder=info,internetarchive_feeder=info"
+      META_FEEDER_STATE_DIR: "/data/meta-feeder"
+      TZ: "$TZ"
+    volumes:
+      # Persist feeder config.json + redb cache so it survives recreate.
+      - ${DATA_ROOT:-/DATA}/AppData/metafeederinternetarchive/state:/data/meta-feeder:rw
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - metafeederinternetarchive
+      - pcs
+
+  # ---------------------------------------------------------------------------
+  # AppShield gate — the feeder's config page behind Yundera OIDC SSO.
+  # container_name == subdomain prefix (the auth-registrar derives the client_id
+  # from it). The gateway still reaches the feeder directly on `pcs`; index → /config.
+  # ---------------------------------------------------------------------------
+  metafeederinternetarchive:
+    image: ghcr.io/yundera/appshield:2.0.9
+    cpu_shares: 80
+    container_name: metafeederinternetarchive
+    hostname: metafeederinternetarchive
+    restart: unless-stopped
+    user: "0:0"
+    expose:
+      - 80
+    environment:
+      OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
+      REDIRECT_HOST_SUFFIXES: "${APP_DOMAIN},${APP_PUBLIC_IP_DASH}.nip.io,${APP_PUBLIC_IP_DASH}.sslip.io"
+      BACKEND_HOST: "metafeederinternetarchive-feeder"
+      BACKEND_PORT: "8080"
+      LISTEN_PORT: "80"
+    labels:
+      caddy_0: metafeederinternetarchive-${APP_DOMAIN}
+      caddy_0.import: gateway_tls
+      caddy_0.reverse_proxy: "{{upstreams 80}}"
+      caddy_1: metafeederinternetarchive-${APP_PUBLIC_IP_DASH}.nip.io
+      caddy_1.import: gateway_tls
+      caddy_1.reverse_proxy: "{{upstreams 80}}"
+      caddy_2: metafeederinternetarchive-${APP_PUBLIC_IP_DASH}.sslip.io
+      caddy_2.reverse_proxy: "{{upstreams 80}}"
+    depends_on:
+      - metafeederinternetarchive-feeder
+    networks:
+      - metafeederinternetarchive
+      - pcs
+
+networks:
+  metafeederinternetarchive:
+    name: metafeederinternetarchive
+    driver: bridge
+  pcs:
+    name: ${APP_NET:-pcs}
+    external: true
+
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  author: Worph Team
+  category: Media
+  developer: Aptero Team
+  main: metafeederinternetarchive
+  webui_port: 80
+  index: /config
+
+  description:
+    en_us: |
+      **Free audio from the Internet Archive, on the MetaMesh network.**
+
+      MetaFeeder · Internet Archive bridges archive.org's open audio collections —
+      **etree** live recordings, **netlabels**, **78rpm** transfers — into MetaMesh.
+      Keyless and open: nothing to sign up for, nothing to configure.
+
+      It is a *bytes* tier: the audio it finds is fetched and seeded to the swarm,
+      so a track stays playable for the next peer that asks.
+      **Requires:** **MetaGateway** — its meta-core stores the resolved records and
+      announces them to the swarm. The gateway must list this feeder in its config.
+    fr_fr: |
+      **L'audio libre d'Internet Archive, sur le réseau MetaMesh.**
+
+      MetaFeeder · Internet Archive connecte les collections audio ouvertes
+      d'archive.org (**etree**, **netlabels**, **78rpm**) à MetaMesh. Sans clé et
+      sans configuration. C'est une couche *octets* : l'audio trouvé est récupéré
+      puis partagé au swarm. **Nécessite** l'app **MetaGateway**.
+  tagline:
+    en_us: Internet Archive free audio (etree, netlabels, 78rpm) for MetaMesh
+    fr_fr: L'audio libre d'Internet Archive (etree, netlabels, 78rpm) pour MetaMesh
+
+  title:
+    en_us: MetaFeeder · Internet Archive
+
+  icon: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaFeederInternetArchive/icon.png
+  thumbnail: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaFeederInternetArchive/thumbnail.png
+
+  store_app_id: metafeederinternetarchive
+  is_uncontrolled: false
+
+  tips:
+    before_install:
+      en_us: |
+        **Install order:** install **MetaGateway** first (its meta-core stores and
+        announces what this feeder finds).
+
+        **After installing this app:** in **MetaGateway**, add this feeder from the
+        dashboard's *Add a feeder* box — name `internetarchive-feeder`, URL `http://metafeederinternetarchive-feeder:8080`.
+        The gateway restarts itself: feeder discovery is startup-only.
+        No API key and no account: the feeder answers as soon as the gateway
+        discovers it. Pairs with **MetaListen** for a music client.
+        **Authentication:** the config UI is protected by Yundera's Authelia (OIDC).
+
+# Maison (Yundera dashboard) configuration. Read in preference to x-casaos.
+# schema_version 2 is required for `folders`: an older Maison refuses the app
+# outright rather than starting it without its directories.
+x-compose-app:
+  schema_version: 2
+  # Created and chowned by Maison before any image is pulled, before any hook
+  # runs and before the containers start — on the first boot and every one after.
+  # Compose would otherwise create a missing bind source as a root-owned dir.
+  folders:
+    - path: /DATA/AppData/metafeederinternetarchive/state
+      user: $PUID
+      group: $PGID
+  # Same string as the caddy_0 label, so the tile link and the route agree.
+  webui-host: metafeederinternetarchive-${domain}
+  webui-path: "/config"

@@ -1,0 +1,174 @@
+name: metapluginanimedetector
+
+# =============================================================================
+# MetaPlugin · Anime Detector — the `anime-detector` enrichment plugin, as a standalone app.
+#
+# A MetaMesh enrichment plugin is a HEADLESS worker: it speaks the four-verb
+# plugin HTTP contract (`/manifest`, `/health`, `/configure`, `/process`) and
+# nothing else. There is no dashboard — the web UI on this tile is the plugin's
+# own `/manifest`, which is how you confirm it is alive and what version it is.
+#
+# ⚠ NOTHING IN THE FAMILY CONSUMES IT BY URL YET — install it knowing that.
+# MetaSort starts its own plugin containers from `plugins.yml` (`image:`) and
+# has no URL slot. The feeder SDK has exactly three sidecar slots
+# (`FILENAME_PARSER_URL`, `TMDB_PLUGIN_URL`, `OPENSUBTITLES_PLUGIN_URL`) and
+# `anime-detector` is not one of them. What this app gives you today is the plugin
+# running and addressable at `http://metapluginanimedetector-plugin:8080` for anything that
+# speaks the four-verb plugin contract — your own caller, a probe, a future
+# consumer. It is packaging ahead of the consumer, on purpose.
+#
+# ⚠ IT HOLDS NO CREDENTIALS. The caller POSTs `/configure` with its own key
+# (TMDB token, OpenSubtitles account) before use. Two consumers sharing one
+# instance are last-writer-wins on that config — same key, no problem; different
+# keys, install a second copy.
+#
+# Everything is scoped under the `metapluginanimedetector-*` prefix + the per-stack `metapluginanimedetector`
+# network, so it installs beside the other Meta* apps with zero
+# collisions.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # metapluginanimedetector-plugin — the plugin. Listens on 8080; joined to `pcs` so any
+  # consumer on the box can reach it by name. Default queue: fast.
+  # ---------------------------------------------------------------------------
+  metapluginanimedetector-plugin:
+    image: ghcr.io/worph/metamesh-plugin-anime-detector:1.0.0
+    cpu_shares: 30
+    container_name: metapluginanimedetector-plugin
+    # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
+    # instead of swap. Mirrors the limits the bundled sidecars run with.
+    mem_limit: 256m
+    memswap_limit: 256m
+    hostname: metapluginanimedetector-plugin
+    restart: unless-stopped
+    user: "0:0"
+    expose:
+      - 8080
+    environment:
+      # Nothing to configure: this plugin takes its work from the /process
+      # payload and writes back through the caller. No key, no WebDAV.
+      TZ: "$TZ"
+    networks:
+      - metapluginanimedetector
+      - pcs
+
+  # ---------------------------------------------------------------------------
+  # AppShield gate — the plugin's `/manifest` behind Yundera OIDC SSO.
+  # container_name == subdomain prefix (the auth-registrar derives the client_id
+  # from it). Consumers still reach the plugin directly on `pcs`; this gate
+  # exists so `/process` and `/configure` are never reachable from the internet
+  # without a session.
+  # ---------------------------------------------------------------------------
+  metapluginanimedetector:
+    image: ghcr.io/yundera/appshield:2.0.9
+    cpu_shares: 80
+    container_name: metapluginanimedetector
+    hostname: metapluginanimedetector
+    restart: unless-stopped
+    user: "0:0"
+    expose:
+      - 80
+    environment:
+      OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
+      REDIRECT_HOST_SUFFIXES: "${APP_DOMAIN},${APP_PUBLIC_IP_DASH}.nip.io,${APP_PUBLIC_IP_DASH}.sslip.io"
+      BACKEND_HOST: "metapluginanimedetector-plugin"
+      BACKEND_PORT: "8080"
+      LISTEN_PORT: "80"
+    labels:
+      caddy_0: metapluginanimedetector-${APP_DOMAIN}
+      caddy_0.import: gateway_tls
+      caddy_0.reverse_proxy: "{{upstreams 80}}"
+      caddy_1: metapluginanimedetector-${APP_PUBLIC_IP_DASH}.nip.io
+      caddy_1.import: gateway_tls
+      caddy_1.reverse_proxy: "{{upstreams 80}}"
+      caddy_2: metapluginanimedetector-${APP_PUBLIC_IP_DASH}.sslip.io
+      caddy_2.reverse_proxy: "{{upstreams 80}}"
+    depends_on:
+      - metapluginanimedetector-plugin
+    networks:
+      - metapluginanimedetector
+      - pcs
+
+networks:
+  metapluginanimedetector:
+    name: metapluginanimedetector
+    driver: bridge
+  pcs:
+    name: ${APP_NET:-pcs}
+    external: true
+
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  author: Worph Team
+  category: Developer
+  developer: Aptero Team
+  main: metapluginanimedetector
+  webui_port: 80
+  index: /manifest
+
+  description:
+    en_us: |
+      **The `anime-detector` enrichment plugin for MetaMesh, as its own app.**
+
+      Flags anime content from release keywords, Japanese text in the title and the audio tracks present.
+
+
+      **Headless.** It answers the plugin HTTP contract — `/manifest`, `/health`,
+      `/configure`, `/process` — and has no dashboard; this tile opens its
+      `/manifest`. Point a consumer at `http://metapluginanimedetector-plugin:8080`.
+
+      ⚠ **No MetaMesh app calls it by URL yet.** MetaSort starts its own plugin
+      containers from `plugins.yml`, and the MetaFeeder SDK's sidecar slots cover
+      only filename-parser, TMDB and OpenSubtitles — not `anime-detector`. Installing this
+      gives you the plugin running and addressable on the `pcs` network for
+      anything that speaks the plugin contract; it does **not** add `anime-detector` to
+      MetaSort.
+    fr_fr: |
+      **Le plugin d'enrichissement `anime-detector` de MetaMesh, en app autonome.**
+
+      Détecte les contenus anime à partir des mots-clés de release, du texte japonais dans le titre et des pistes audio présentes.
+
+      **Sans interface.** Il répond au contrat HTTP des plugins — `/manifest`,
+      `/health`, `/configure`, `/process` — et n'a pas de tableau de bord ; cette
+      tuile ouvre son `/manifest`. Dirigez un consommateur vers
+      `http://metapluginanimedetector-plugin:8080`.
+
+      **Ce n'est pas un plugin MetaSort** : MetaSort démarre ses propres
+      conteneurs de plugins depuis `plugins.yml` et n'accepte pas d'URL.
+  tagline:
+    en_us: Detects anime content from keywords, Japanese text and audio
+    fr_fr: Détecte les contenus anime (mots-clés, texte japonais, audio)
+
+  title:
+    en_us: MetaPlugin · Anime Detector
+
+  icon: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaPluginAnimeDetector/icon.png
+  thumbnail: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaPluginAnimeDetector/thumbnail.png
+
+  store_app_id: metapluginanimedetector
+  is_uncontrolled: false
+
+  tips:
+    before_install:
+      en_us: |
+        ⚠ **Read this first: nothing calls `anime-detector` by URL yet.** MetaSort spawns
+        its own plugin containers from `plugins.yml` (`image:`) and has no URL
+        slot, and the MetaFeeder SDK's three sidecar slots are filename-parser,
+        TMDB and OpenSubtitles only. Install this if you want `anime-detector` running and
+        addressable at `http://metapluginanimedetector-plugin:8080` for your own caller — not
+        expecting it to light up MetaSort or a MetaFeeder on its own.
+
+        **Authentication:** the `/manifest` page is protected by Yundera's Authelia
+        (OIDC). Consumers on the `pcs` network bypass the gate by design.
+
+# Maison (Yundera dashboard) configuration. Read in preference to x-casaos.
+# schema_version 2 is required for `folders`: an older Maison refuses the app
+# outright rather than starting it without its directories.
+x-compose-app:
+  schema_version: 2
+  # Same string as the caddy_0 label, so the tile link and the route agree.
+  webui-host: metapluginanimedetector-${domain}
+  webui-path: "/manifest"
