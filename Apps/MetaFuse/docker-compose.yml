@@ -4,7 +4,7 @@ services:
   # Backend service. Reachable on the pcs network as `metafuse-app`.
   # Public ingress goes through the `metafuse` hash-lock proxy below.
   metafuse-app:
-    image: ghcr.io/worph/meta-fuse:1.1.0
+    image: ghcr.io/worph/meta-fuse:1.1.3
     cpu_shares: 50
     container_name: metafuse-app
     hostname: metafuse-app
