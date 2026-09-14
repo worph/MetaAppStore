@@ -94,7 +94,9 @@ services:
     ports:
       - "4006:4001"
     volumes:
-      - ${DATA_ROOT:-/DATA}/AppData/metaread/metacore:/meta-core:rw
+      # No /meta-core mount: this service locates meta-core over UDP
+      # (meta-discovery v1) instead of reading kv-leader.info off a shared
+      # volume. See docs/project-architecture/service-discovery.md.
       - ${DATA_ROOT:-/DATA}/AppData/metaread/search-data:/data:rw
     environment:
       P2P_LISTEN: "/ip4/0.0.0.0/tcp/4001"
@@ -112,7 +114,6 @@ services:
       # with the four alone, 126 once a reachable fifth was added.
       KAD_BOOTSTRAP_PEERS: "/dns4/sg1.bootstrap.libp2p.io/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt,/dns4/sv15.bootstrap.libp2p.io/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN,/dns4/ny5.bootstrap.libp2p.io/tcp/4001/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa,/dns4/am6.bootstrap.libp2p.io/tcp/4001/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb,/dns4/mars.i.ipfs.io/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
       META_CORE_URL: "http://metaread-core:9000"
-      META_CORE_PATH: "/meta-core"
       BASE_URL: "http://metaread-search:3000"
       INTERNAL_BASE_URL: "http://metaread-search:3000"
       TZ: "$TZ"
@@ -155,7 +156,9 @@ services:
     ports:
       - "4005:4001"
     volumes:
-      - ${DATA_ROOT:-/DATA}/AppData/metaread/metacore:/meta-core:rw
+      # No /meta-core mount: this service locates meta-core over UDP
+      # (meta-discovery v1) instead of reading kv-leader.info off a shared
+      # volume. See docs/project-architecture/service-discovery.md.
       - ${DATA_ROOT:-/DATA}/AppData/metaread/metashare-config:/config:rw
       # The read cache: redb blockstore, seed manifest, sparse files. Without
       # this mount every recreate re-downloads from a cold swarm and the peer
@@ -166,7 +169,6 @@ services:
       PUBLIC_ADDR: "/ip4/${APP_PUBLIC_IPV4}/tcp/4005"
       KAD_BOOTSTRAP_PEERS: "/dns4/sg1.bootstrap.libp2p.io/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt,/dns4/sv15.bootstrap.libp2p.io/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN,/dns4/ny5.bootstrap.libp2p.io/tcp/4001/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa,/dns4/am6.bootstrap.libp2p.io/tcp/4001/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb,/dns4/mars.i.ipfs.io/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
       META_CORE_URL: "http://metaread-core:9000"
-      META_CORE_PATH: "/meta-core"
       BASE_URL: "http://metaread-share:3000"
       INTERNAL_BASE_URL: "http://metaread-share:3000"
       TZ: "$TZ"

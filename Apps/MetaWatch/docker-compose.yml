@@ -88,7 +88,9 @@ services:
       # libp2p TCP — host-published so the swarm can dial this peer.
       - "4004:4001"
     volumes:
-      - ${DATA_ROOT:-/DATA}/AppData/metawatch/metacore:/meta-core:rw
+      # No /meta-core mount: this service locates meta-core over UDP
+      # (meta-discovery v1) instead of reading kv-leader.info off a shared
+      # volume. See docs/project-architecture/service-discovery.md.
       # META_SHARE_DATA (default /data/meta-share): prefs.json (language prefs)
       # + the redb blockstore holding poster/thumbnail blocks recovered off the
       # swarm. Without this mount both are on the container's writable layer and
@@ -118,7 +120,6 @@ services:
       # future default change can't silently shorten it again.
       SEARCH_TIMEOUT_SECS: "300"
       META_CORE_URL: "http://metawatch-core:9000"
-      META_CORE_PATH: "/meta-core"
       BASE_URL: "http://metawatch-search:3000"
       # Renamed at the 1.1.0 bump (2026-08-26), as the old note here said to do:
       # META_SHARE_PEER_API_URL was the pre-1.0.8 spelling and now only logs a
@@ -166,7 +167,9 @@ services:
     ports:
       - "4003:4001"
     volumes:
-      - ${DATA_ROOT:-/DATA}/AppData/metawatch/metacore:/meta-core:rw
+      # No /meta-core mount: this service locates meta-core over UDP
+      # (meta-discovery v1) instead of reading kv-leader.info off a shared
+      # volume. See docs/project-architecture/service-discovery.md.
       # Operator settings written by the dashboard Settings panel (settings.json,
       # e.g. optional direct-NNTP/Usenet credentials). Persisted on disk so
       # dashboard edits survive container recreation — this stack has no separate
@@ -198,7 +201,6 @@ services:
       # reachable fifth was added. Costs nothing when the four work.
       KAD_BOOTSTRAP_PEERS: "/dns4/sg1.bootstrap.libp2p.io/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt,/dns4/sv15.bootstrap.libp2p.io/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN,/dns4/ny5.bootstrap.libp2p.io/tcp/4001/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa,/dns4/am6.bootstrap.libp2p.io/tcp/4001/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb,/dns4/mars.i.ipfs.io/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
       META_CORE_URL: "http://metawatch-core:9000"
-      META_CORE_PATH: "/meta-core"
       BASE_URL: "http://metawatch-share:3000"
       INTERNAL_BASE_URL: "http://metawatch-share:3000"
       TZ: "$TZ"

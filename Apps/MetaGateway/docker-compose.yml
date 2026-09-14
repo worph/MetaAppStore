@@ -93,7 +93,9 @@ services:
     ports:
       - "4005:4001"
     volumes:
-      - ${DATA_ROOT:-/DATA}/AppData/metagateway/metacore:/meta-core:rw
+      # No /meta-core mount: this service locates meta-core over UDP
+      # (meta-discovery v1) instead of reading kv-leader.info off a shared
+      # volume. See docs/project-architecture/service-discovery.md.
       # Operator settings (settings.json — NNTP creds + indexer API keys). This
       # is the CREDENTIALED peer of the pair: it materialises NZB postings for
       # credential-less clients. Losing settings.json on an update means the
@@ -125,7 +127,6 @@ services:
       # reachable fifth was added. Costs nothing when the four work.
       KAD_BOOTSTRAP_PEERS: "/dns4/sg1.bootstrap.libp2p.io/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt,/dns4/sv15.bootstrap.libp2p.io/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN,/dns4/ny5.bootstrap.libp2p.io/tcp/4001/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa,/dns4/am6.bootstrap.libp2p.io/tcp/4001/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb,/dns4/mars.i.ipfs.io/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
       META_CORE_URL: "http://metagateway-core:9000"
-      META_CORE_PATH: "/meta-core"
       BASE_URL: "http://metagateway-share:3000"
       # Renamed at the 1.0.26 bump (2026-08-26), as the old note here said to do:
       # META_SHARE_PEER_API_URL was the pre-1.0.8 spelling and now only logs a
