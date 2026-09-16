@@ -152,7 +152,7 @@ services:
     # the 1.0.8 floor: rsa-enabled libp2p (joins the public IPFS DHT) +
     # P2P_ANNOUNCE so remote peers can dial this transport peer to fetch the
     # bytes it seeds (fetch-implies-seed). Without rsa it never reaches the DHT.
-    image: ghcr.io/worph/meta-share:1.0.33
+    image: ghcr.io/worph/meta-share:1.0.35
     container_name: metawatch-share
     # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
     # instead of swap. Mirrors the dev sub-stack limits.
@@ -223,7 +223,7 @@ services:
   # My List + Continue Watching persist in /DATA/AppData/metawatch/data.
   # ---------------------------------------------------------------------------
   metawatch-app:
-    image: ghcr.io/worph/meta-watch:1.0.66
+    image: ghcr.io/worph/meta-watch:1.0.67
     container_name: metawatch-app
     hostname: metawatch-app
     restart: unless-stopped

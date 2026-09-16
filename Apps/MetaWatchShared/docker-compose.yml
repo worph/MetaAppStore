@@ -111,7 +111,7 @@ services:
   # owns the caddy_* labels directly and Caddy proxies straight to :3000.
   # ---------------------------------------------------------------------------
   metawatch-app:
-    image: ghcr.io/worph/meta-watch:1.0.66
+    image: ghcr.io/worph/meta-watch:1.0.67
     container_name: metawatch-app
     hostname: metawatch-app
     restart: unless-stopped

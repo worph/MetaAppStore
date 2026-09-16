@@ -141,7 +141,7 @@ services:
   # that lists correctly and will not open.
   # ---------------------------------------------------------------------------
   metaread-share:
-    image: ghcr.io/worph/meta-share:1.0.33
+    image: ghcr.io/worph/meta-share:1.0.35
     container_name: metaread-share
     # Smaller than MetaWatch's 3 GB on purpose: a chapter is tens of megabytes
     # where a film is gigabytes, and this peer never holds a whole video.
@@ -191,7 +191,7 @@ services:
   # My List, Continue Reading and reading positions live in the User Data Layer.
   # ---------------------------------------------------------------------------
   metaread-app:
-    image: ghcr.io/worph/meta-read:1.0.7
+    image: ghcr.io/worph/meta-read:1.0.8
     container_name: metaread-app
     hostname: metaread-app
     restart: unless-stopped
