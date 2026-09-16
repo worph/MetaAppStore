@@ -33,7 +33,7 @@ services:
   # consumer on the box can reach it by name. Default queue: fast.
   # ---------------------------------------------------------------------------
   metapluginsubtitle-plugin:
-    image: ghcr.io/worph/metamesh-plugin-subtitle:1.0.0
+    image: ghcr.io/worph/metamesh-plugin-subtitle:1.0.1
     cpu_shares: 30
     container_name: metapluginsubtitle-plugin
     # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM

@@ -42,7 +42,7 @@ services:
   # consumer, not a library indexer.
   # ---------------------------------------------------------------------------
   metaread-core:
-    image: ghcr.io/worph/meta-core:1.0.20
+    image: ghcr.io/worph/meta-core:1.0.22
     container_name: metaread-core
     # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM instead of
     # swap.
@@ -81,7 +81,7 @@ services:
   # peer count before suspecting the feeders.
   # ---------------------------------------------------------------------------
   metaread-search:
-    image: ghcr.io/worph/meta-search:1.2.5
+    image: ghcr.io/worph/meta-search:1.2.6
     container_name: metaread-search
     mem_limit: 1g
     memswap_limit: 1g
@@ -141,7 +141,7 @@ services:
   # that lists correctly and will not open.
   # ---------------------------------------------------------------------------
   metaread-share:
-    image: ghcr.io/worph/meta-share:1.0.32
+    image: ghcr.io/worph/meta-share:1.0.33
     container_name: metaread-share
     # Smaller than MetaWatch's 3 GB on purpose: a chapter is tens of megabytes
     # where a film is gigabytes, and this peer never holds a whole video.

@@ -33,7 +33,7 @@ services:
   # consumer on the box can reach it by name. Default queue: background.
   # ---------------------------------------------------------------------------
   metapluginsubtitleextractor-plugin:
-    image: ghcr.io/worph/metamesh-plugin-subtitle-extractor:1.0.0
+    image: ghcr.io/worph/metamesh-plugin-subtitle-extractor:1.0.2
     cpu_shares: 30
     container_name: metapluginsubtitleextractor-plugin
     # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM

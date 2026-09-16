@@ -40,7 +40,7 @@ services:
     # package, published as ${{ github.repository }}) was renamed. The old
     # `meta-feeder-indexer` package still exists but is frozen at 1.0.23 and
     # receives no further pushes. The APP keeps the `metafeederprowlarr` name.
-    image: ghcr.io/worph/meta-feeder-torznab:1.0.26
+    image: ghcr.io/worph/meta-feeder-torznab:1.0.33
     cpu_shares: 30
     container_name: metafeederprowlarr-feeder
     # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
@@ -101,7 +101,7 @@ services:
   # No healthcheck: these plugin images don't ship one (curl absent).
   # ---------------------------------------------------------------------------
   metafeederprowlarr-filename-parser:
-    image: ghcr.io/worph/metamesh-plugin-filename-parser:1.0.2
+    image: ghcr.io/worph/metamesh-plugin-filename-parser:1.0.3
     cpu_shares: 30
     container_name: metafeederprowlarr-filename-parser
     # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
@@ -118,7 +118,7 @@ services:
       - metafeederprowlarr
 
   metafeederprowlarr-tmdb:
-    image: ghcr.io/worph/metamesh-plugin-tmdb:1.0.2
+    image: ghcr.io/worph/metamesh-plugin-tmdb:1.0.3
     cpu_shares: 30
     container_name: metafeederprowlarr-tmdb
     # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
