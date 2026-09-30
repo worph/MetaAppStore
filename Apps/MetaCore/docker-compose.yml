@@ -14,8 +14,14 @@ services:
     # ran at 73-97% of 768m, i.e. one indexing burst away from an OOM kill that
     # takes the record store (and every service reading it) down with it.
     # 1536m puts steady state near 30%.
-    mem_limit: 1536m
-    memswap_limit: 1536m
+    #
+    # Raised 1536m -> 6g (2026-09-30): the record index costs ~40 KB of RAM per
+    # record, and watch.nsl.sh's working set reached 4.8 GiB (tens of
+    # thousands of records). A cap is a ceiling, not a reservation — a small
+    # library still uses a few hundred MB — so a generous one costs nothing
+    # until the library grows into it.
+    mem_limit: 6g
+    memswap_limit: 6g
     hostname: metacore-app
     restart: unless-stopped
     privileged: true
@@ -48,6 +54,12 @@ services:
       # metacore-app is the only service that mounts /files; the gateway and
       # feeders write here over HTTP, so this one mount covers all of them.
       - ${DATA_ROOT:-/DATA}/AppData/metacore/plugin:/files/plugin:rw
+
+      # MetaShare's download cache, read-only. Content fetched over the swarm
+      # lands there; meta-core indexes it (as a watcher POSTed at runtime, not
+      # an env var) so cached items become ordinary local records with a real
+      # filePath. Harmless when MetaShare isn't installed: the dir is empty.
+      - ${DATA_ROOT:-/DATA}/AppData/metashare/data/meta-share/cache:/files/cache:ro
 
     environment:
       - BASE_URL=https://metacore-$APP_DOMAIN

@@ -44,9 +44,10 @@ services:
     cpu_shares: 30
     container_name: metafeederprowlarr-feeder
     # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
-    # instead of swap. Mirrors the dev sub-stack limits.
-    mem_limit: 512m
-    memswap_limit: 512m
+    # instead of swap. 512m -> 1g (2026-09-30): the feeder's steady state on
+    # watch.nsl.sh is ~660 MiB (release cache + in-flight torznab pages).
+    mem_limit: 1g
+    memswap_limit: 1g
     hostname: metafeederprowlarr-feeder
     restart: unless-stopped
     user: "0:0"

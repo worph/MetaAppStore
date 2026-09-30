@@ -41,8 +41,10 @@ services:
     cpu_shares: 40
     # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
     # instead of swap. Mirrors the dev sub-stack limits.
-    mem_limit: 1g
-    memswap_limit: 1g
+    # 1g -> 2g (2026-09-30): the DHT-joined dispatcher runs at ~1.2 GiB on
+    # watch.nsl.sh, so the 1g cap was an OOM loop in waiting.
+    mem_limit: 2g
+    memswap_limit: 2g
     expose:
       - 3000
     # Public libp2p listener. This is the peer a remote MetaWatch's meta-search
@@ -94,6 +96,12 @@ services:
       # peer-id, every provider record it published was stale within seconds —
       # remote peers only ever got "Unexpected peer ID". 128 is the default;
       # raise it only together with the memory limit.
+      # glibc malloc: cap the per-thread arenas and hand freed memory back to
+      # the OS. Without them RSS ratchets upward under a burst of fan-out
+      # queries and never comes down, which is what the cap above then kills.
+      MALLOC_ARENA_MAX: "2"
+      MALLOC_MMAP_THRESHOLD_: "131072"
+      MALLOC_TRIM_THRESHOLD_: "131072"
       META_GATEWAY_MAX_CONNECTIONS: "128"
       META_GATEWAY_P2P_LISTEN: "/ip4/0.0.0.0/tcp/4002"
       META_GATEWAY_PUBLIC_ADDR: "/ip4/${APP_PUBLIC_IPV4}/tcp/4002"
@@ -106,7 +114,10 @@ services:
       # ALL — no provider record, no discovery, no gateway fan-out. Observed on
       # watch.nsl.sh 2026-09-01: 2 connections with the four alone, 126 once a
       # reachable fifth was added. Costs nothing when the four work.
-      KAD_BOOTSTRAP_PEERS: "/dns4/sg1.bootstrap.libp2p.io/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt,/dns4/sv15.bootstrap.libp2p.io/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN,/dns4/ny5.bootstrap.libp2p.io/tcp/4001/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa,/dns4/am6.bootstrap.libp2p.io/tcp/4001/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb,/dns4/mars.i.ipfs.io/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
+      # The four trailing /ip4/ peers are long-lived public DHT servers
+      # observed reachable from watch.nsl.sh — more doors in if the
+      # Foundation nodes refuse this IP.
+      KAD_BOOTSTRAP_PEERS: "/dns4/sg1.bootstrap.libp2p.io/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt,/dns4/sv15.bootstrap.libp2p.io/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN,/dns4/ny5.bootstrap.libp2p.io/tcp/4001/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa,/dns4/am6.bootstrap.libp2p.io/tcp/4001/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb,/dns4/mars.i.ipfs.io/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ,/ip4/88.99.98.148/tcp/4001/p2p/12D3KooWJefeaXhgJGmxzcqFq9twQASbt9Fuc2Ez7MRgrcpt3aLu,/ip4/13.250.82.223/tcp/4001/p2p/12D3KooWCpQsdp1NGcoJr2RT81TpGc4qAiWeUrVwopzjTTYwGaSp,/ip4/159.203.79.101/tcp/4001/p2p/12D3KooWAhMxrbK9DVVsonnXZCxcZkn7Sj9QsseYN7KGZRqwESBp,/ip4/139.18.170.37/tcp/4001/p2p/12D3KooWF65X6XcJRGXpCAViN3CaBAMaTWSuqyoya4ndjHQxdjJu"
       TZ: "$TZ"
     depends_on:
       metagateway-card:
@@ -199,8 +210,16 @@ services:
       # + nzbFetch + nzbIndexers (indexer HOSTNAMES, no API keys).
       caddy_0.1_handle: "/api/gateway/plugins"
       caddy_0.1_handle.reverse_proxy: "metagateway-app:3000"
-      caddy_0.2_handle: ""
-      caddy_0.2_handle.reverse_proxy: "{{upstreams 80}}"
+      # Content bytes by CID, fetched by REMOTE peers with no session — the
+      # same carve-out MetaShare has always had. meta-read builds cover hint
+      # URLs from a gateway-sourced record's originUrl, i.e. THIS host; behind
+      # AppShield they answered 302 → login and every cover fell back to
+      # cross-internet bitswap. Read-only; settings/search/stats stay gated.
+      # Must stay ahead of the empty catch-all.
+      caddy_0.2_handle: "/api/file/*"
+      caddy_0.2_handle.reverse_proxy: "metagateway-app:3000"
+      caddy_0.3_handle: ""
+      caddy_0.3_handle.reverse_proxy: "{{upstreams 80}}"
 
       # ---- metagateway-IP.nip.io (gateway TLS) ----
       caddy_1: metagateway-${APP_PUBLIC_IP_DASH}.nip.io
@@ -215,8 +234,10 @@ services:
       # + nzbFetch + nzbIndexers (indexer HOSTNAMES, no API keys).
       caddy_1.1_handle: "/api/gateway/plugins"
       caddy_1.1_handle.reverse_proxy: "metagateway-app:3000"
-      caddy_1.2_handle: ""
-      caddy_1.2_handle.reverse_proxy: "{{upstreams 80}}"
+      caddy_1.2_handle: "/api/file/*"
+      caddy_1.2_handle.reverse_proxy: "metagateway-app:3000"
+      caddy_1.3_handle: ""
+      caddy_1.3_handle.reverse_proxy: "{{upstreams 80}}"
 
       # ---- metagateway-IP.sslip.io (Let's Encrypt) ----
       caddy_2: metagateway-${APP_PUBLIC_IP_DASH}.sslip.io
@@ -230,8 +251,10 @@ services:
       # + nzbFetch + nzbIndexers (indexer HOSTNAMES, no API keys).
       caddy_2.1_handle: "/api/gateway/plugins"
       caddy_2.1_handle.reverse_proxy: "metagateway-app:3000"
-      caddy_2.2_handle: ""
-      caddy_2.2_handle.reverse_proxy: "{{upstreams 80}}"
+      caddy_2.2_handle: "/api/file/*"
+      caddy_2.2_handle.reverse_proxy: "metagateway-app:3000"
+      caddy_2.3_handle: ""
+      caddy_2.3_handle.reverse_proxy: "{{upstreams 80}}"
 
       icon: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaGateway/icon.png
     networks:

@@ -9,6 +9,8 @@ services:
     hostname: metasort-app
     restart: unless-stopped
     cpu_shares: 20
+    mem_limit: 2g
+    memswap_limit: 2g
 
     expose:
       - 80
@@ -26,6 +28,17 @@ services:
       # Docker socket for container plugin management
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
+      # Config files from this app's seed tree (Apps/MetaSort/seed/config/),
+      # which Maison writes only when absent — an operator's edits survive
+      # updates. The image ships no plugins.yml, so without it a stock install
+      # spawns ZERO plugins; the supervisord override drops the image's bundled
+      # follower meta-core, which restart-loops against the standalone MetaCore
+      # app; the nginx conf is the image's stock one, mounted so a box can tune
+      # it (watch.nsl.sh 503s /api/stats, which sweeps every record).
+      - ${DATA_ROOT:-/DATA}/AppData/metasort/config/plugins.yml:/app/plugins.yml:ro
+      - ${DATA_ROOT:-/DATA}/AppData/metasort/config/supervisord-metasort.conf:/etc/supervisor/conf.d/supervisord.conf:ro
+      - ${DATA_ROOT:-/DATA}/AppData/metasort/config/nginx-metasort.conf:/etc/nginx/nginx.conf:ro
+
     # Note: no /files mounts — files are accessed via WebDAV from MetaCore
     # (Architecture V3). MetaCore is the single source of truth for media files.
 
@@ -41,6 +54,13 @@ services:
       # Container plugin configuration
       - CONTAINER_CALLBACK_URL=http://metasort-app/api/plugins/callback
       - CONTAINER_NETWORK=pcs
+      # meta-core URL handed to plugin containers. Port 3000, not 80: the baked
+      # nginx has no /meta/ location, so plugin writes through :80 would 404.
+      # (The code default, http://meta-sort, names no host on this network.)
+      - CONTAINER_META_CORE_URL=http://metasort-app:3000
+      # Compose project label stamped on the plugin containers meta-sort spawns,
+      # so they group under one stack instead of floating loose.
+      - PLUGIN_STACK_NAME=metasort-plugins
 
     # Note: Runs as root for nginx, Redis, and file management
     user: 0:0

@@ -1,0 +1,361 @@
+name: metaread
+
+# =============================================================================
+# MetaRead (shared backend) — the READING client for the MetaMesh network.
+#
+# This is the SHARED-BACKEND variant of MetaRead. It ships only its own
+# discovery peer (meta-search) and REUSES the standalone MetaCore and MetaShare
+# apps already installed on the box:
+#
+#   metaread-search →  discovery (Kamilata federated search, identity proxy)
+#                      → talks to the standalone metacore-app over `pcs`
+#   metaread-app    →  the reader UI/back-end
+#                      → streams bytes from the standalone metashare-app
+#
+# One keystore, one User Data Layer, one catalogue, one transport cache, however
+# many clients: a profile is a secp256k1 key in a meta-core keystore, so a
+# per-app core means a per-app identity and a library with nothing in it.
+#
+# Contrast with the `MetaRead` app in this store, which is SELF-CONTAINED (its
+# own metaread-core + metaread-share). Pick exactly one: both use compose
+# project `metaread` and the same /DATA/AppData/metaread paths, so they cannot
+# be installed side by side.
+#
+# Deployed and validated on watch.nsl.sh (2026-09).
+#
+# REQUIRES, on the same box and on the `pcs` network:
+#   - MetaCore  → provides metacore-app (identity keystore + record store)
+#   - MetaShare → provides metashare-app (byte transport for reading)
+# Install those FIRST. Without them MetaRead cannot sign anyone in and cannot
+# open anything.
+#
+# ⚠ **Distinct libp2p host port.** MetaWatch's discovery publishes 4004 and the
+# shared MetaShare publishes 4001; this stack's discovery uses 4006. Two peers
+# cannot share a host port, and the failure is a container that will not start.
+#
+# ── What it needs to actually show you something ─────────────────────────────
+# A client is a window onto the swarm; it holds no catalogue of its own. To see
+# comics you need a gateway peer running the literature feeders:
+#
+#   **MetaFeeder · Suwayomi** — the chapters (and its own work cards), plus
+#   optionally **MetaFeeder · AniList** to name the works. Install them beside
+#   **MetaGateway** and register each feeder in the gateway's config.
+#
+#   **MetaFeeder · Gutenberg** — Project Gutenberg (+ Open Library cards), for
+#   public-domain books.
+#
+# Without either, MetaRead runs perfectly and shows an empty library — which is
+# the honest state of a mesh nobody has fed yet, not a fault.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # metaread-search — DISCOVERY. Federated search (Kamilata Bloom routing), the
+  # gateway fan-out, cover recovery over bitswap, the shared prefs and the User
+  # Data Layer. Public libp2p on host port 4006; mDNS on `pcs` for same-host
+  # peers.
+  #
+  # ⚠ This is the peer that reaches MetaGateway. An empty MetaRead library with
+  # a healthy gateway usually means this peer never joined the DHT — check its
+  # peer count before suspecting the feeders.
+  # ---------------------------------------------------------------------------
+  metaread-search:
+    image: ghcr.io/worph/meta-search:1.2.6
+    container_name: metaread-search
+    # 2g, not the self-contained listing's 1g: on the shared core it indexes the
+    # gateway box's whole catalogue (~830 MiB steady state on watch.nsl.sh).
+    mem_limit: 2g
+    memswap_limit: 2g
+    hostname: metaread-search
+    restart: unless-stopped
+    user: "0:0"
+    cpu_shares: 30
+    expose:
+      - 3000
+    ports:
+      - "4006:4001"
+    volumes:
+      # No /meta-core mount: this service locates meta-core over UDP
+      # (meta-discovery v1) instead of reading kv-leader.info off a shared
+      # volume. See docs/project-architecture/service-discovery.md.
+      - ${DATA_ROOT:-/DATA}/AppData/metaread/search-data:/data:rw
+    environment:
+      # Distinct from metawatch-search on the same core, so the two discovery
+      # peers do not register under one name.
+      SERVICE_NAME: "metaread-search"
+      META_SEARCH_PUBLIC_URL: "https://metareadsearch-${APP_DOMAIN}"
+      # glibc malloc: cap the per-thread arenas and hand freed memory back to
+      # the OS, so RSS comes down after a fan-out burst.
+      MALLOC_ARENA_MAX: "2"
+      MALLOC_MMAP_THRESHOLD_: "131072"
+      MALLOC_TRIM_THRESHOLD_: "131072"
+      P2P_LISTEN: "/ip4/0.0.0.0/tcp/4001"
+      # ⚠ The IPV4 spelling, never the bare APP_PUBLIC_IP: on an IPv6-primary
+      # PCS that variable holds the v6 address, and `/ip4/<v6>/tcp/...` is not a
+      # parseable multiaddr — the peer REFUSES TO START rather than announce a
+      # lie.
+      PUBLIC_ADDR: "/ip4/${APP_PUBLIC_IPV4}/tcp/4006"
+      # Explicit /dns4/ bootstraps: the nested dnsaddr default resolves to
+      # wss-only in some container resolvers. mars.i.ipfs.io is the only
+      # surviving legacy *.i.ipfs.io bootstrapper and is here for resilience —
+      # the four IPFS-Foundation nodes can refuse an individual IP, and when they
+      # do a peer cannot join the DHT AT ALL (no provider record, no discovery,
+      # no gateway fan-out). Measured on watch.nsl.sh 2026-09-01: 2 connections
+      # with the four alone, 126 once a reachable fifth was added.
+      KAD_BOOTSTRAP_PEERS: "/dns4/sg1.bootstrap.libp2p.io/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt,/dns4/sv15.bootstrap.libp2p.io/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN,/dns4/ny5.bootstrap.libp2p.io/tcp/4001/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa,/dns4/am6.bootstrap.libp2p.io/tcp/4001/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb,/dns4/mars.i.ipfs.io/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
+      META_CORE_URL: "http://metacore-app:80"
+      BASE_URL: "http://metaread-search:3000"
+      INTERNAL_BASE_URL: "http://metaread-search:3000"
+      TZ: "$TZ"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    # `pcs` is REQUIRED: without it this peer cannot reach metacore-app, and
+    # sign-in fails ("keystore unreachable") while every container reports
+    # healthy.
+    networks:
+      - metaread
+      - pcs
+
+  # ---------------------------------------------------------------------------
+  # metaread-app — the reader. Zero page work server-side: a flat Range/206 byte
+  # proxy to the shared metashare-app, with the CBZ/EPUB/PDF decoding done in
+  # the browser. My List, Continue Reading and reading positions live in the
+  # User Data Layer.
+  # ---------------------------------------------------------------------------
+  metaread-app:
+    image: ghcr.io/worph/meta-read:1.0.8
+    container_name: metaread-app
+    hostname: metaread-app
+    restart: unless-stopped
+    # The image's own USER is the system account `metaread` (uid 10001), but the
+    # data dir is created as $PUID:$PGID by x-compose-app `folders` — so the
+    # stock user cannot write library.json, the session key, the invite book or
+    # the tile cache, and fails with a WARN per row rather than an error. Pin the
+    # runtime uid to the one that owns the mount, as metawatch-app does.
+    user: "1000:1000"
+    cpu_shares: 30
+    mem_limit: 512m
+    memswap_limit: 512m
+    expose:
+      - 3000
+    volumes:
+      - ${DATA_ROOT:-/DATA}/AppData/metaread/data:/app/data
+    environment:
+      BASE_URL: "https://metaread-${APP_DOMAIN}"
+      SERVICE_NAME: "meta-read"
+      META_SHARE_URL: "http://metashare-app:3000"
+      META_SEARCH_URL: "http://metaread-search:3000"
+      # Browser-reachable topbar chips. Transport is the shared MetaShare app
+      # (its own AppShield gate); discovery is this stack's gate below.
+      META_SHARE_PUBLIC_URL: "https://metashare-${APP_DOMAIN}"
+      META_SEARCH_PUBLIC_URL: "https://metareadsearch-${APP_DOMAIN}"
+      TZ: "$TZ"
+    depends_on:
+      metaread-search:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    # ⚠ No AppShield in front of the reader, on purpose — Caddy talks straight
+    # to :3000, exactly as metawatch-app does. meta-read carries its OWN auth
+    # (secp256k1 keypair, signed challenge, invite-only signup) and gates
+    # deny-by-default. Stacking Authelia on top meant a second login, an OIDC
+    # redirect on every cover fetch (<img src> cannot carry a header), and a
+    # service worker at the mercy of a session cookie. See rationale.md.
+    labels:
+      caddy_0: metaread-${APP_DOMAIN}
+      caddy_0.import: gateway_tls
+      caddy_0.reverse_proxy: "{{upstreams 3000}}"
+
+      caddy_1: metaread-${APP_PUBLIC_IP_DASH}.nip.io
+      caddy_1.import: gateway_tls
+      caddy_1.reverse_proxy: "{{upstreams 3000}}"
+
+      caddy_2: metaread-${APP_PUBLIC_IP_DASH}.sslip.io
+      caddy_2.reverse_proxy: "{{upstreams 3000}}"
+
+      icon: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaRead/icon.png
+    networks:
+      - metaread
+      - pcs
+
+  # ---------------------------------------------------------------------------
+  # Gate for the co-located discovery peer, so the reader's meta-search chip
+  # resolves to something a browser can open. Diagnostics only — nothing routes
+  # through it. (Transport is the shared MetaShare app; it has its own.)
+  # `pcs` is REQUIRED — the gate resolves auth-registrar by name there.
+  # ---------------------------------------------------------------------------
+  metareadsearch:
+    image: ghcr.io/yundera/appshield:2.0.9
+    cpu_shares: 50
+    container_name: metareadsearch
+    hostname: metareadsearch
+    restart: unless-stopped
+    user: "0:0"
+    expose:
+      - 80
+    environment:
+      OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
+      REDIRECT_HOST_SUFFIXES: "${APP_DOMAIN},${APP_PUBLIC_IP_DASH}.nip.io,${APP_PUBLIC_IP_DASH}.sslip.io"
+      BACKEND_HOST: "metaread-search"
+      BACKEND_PORT: "3000"
+      LISTEN_PORT: "80"
+    labels:
+      caddy_0: metareadsearch-${APP_DOMAIN}
+      caddy_0.import: gateway_tls
+      caddy_0.reverse_proxy: "{{upstreams 80}}"
+      caddy_1: metareadsearch-${APP_PUBLIC_IP_DASH}.nip.io
+      caddy_1.import: gateway_tls
+      caddy_1.reverse_proxy: "{{upstreams 80}}"
+      caddy_2: metareadsearch-${APP_PUBLIC_IP_DASH}.sslip.io
+      caddy_2.reverse_proxy: "{{upstreams 80}}"
+    depends_on:
+      - metaread-search
+    networks:
+      - metaread
+      - pcs
+
+networks:
+  metaread:
+    name: metaread
+    driver: bridge
+  pcs:
+    name: ${APP_NET:-pcs}
+    external: true
+
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  author: Worph Team
+  category: Media
+  # `needs-public-ip` is the reserved functional tag: this app publishes a raw
+  # libp2p TCP port that remote peers must dial inbound.
+  tags: ["media", "needs-public-ip"]
+  developer: Aptero Team
+  hostname: metaread-${APP_DOMAIN}
+  main: metaread-app
+  port_map: "443"
+  scheme: https
+  index: /
+
+  description:
+    en_us: |
+      **A reading client for the MetaMesh network — comics and manga, books,
+      papers and scanned documents.**
+
+      MetaRead is to reading what **MetaWatch** is to video: a library you browse
+      by *work* rather than by filename. Search returns a grid of covers, a work
+      opens to its chapter or edition list, and a chapter opens in a reader that
+      does the page decoding **in your browser** — the server is a flat byte
+      proxy and never unpacks an archive on your behalf.
+
+      **What it reads.** CBZ and CBR comics, EPUB and PDF books, and the
+      per-page image lists that a manga aggregator serves for a chapter nobody
+      has downloaded yet. Reading direction, page layout and spread are per-work
+      and remembered.
+
+      **Languages.** Pick the languages you read once, in the top bar, and every
+      view honours it — the same preference MetaWatch and the meta-share
+      dashboard already speak. An item that declares no language is always
+      shown: absence means *unknown*, never *not yours*.
+
+      This build is the **shared-backend** variant: it ships only its own
+      discovery (meta-search) and **requires** the standalone MetaCore and
+      MetaShare apps on the same box, which it reuses for identity, state and
+      content transport. One core, one share — no duplicated services, and the
+      same profile as MetaWatch. If you want a stack that bundles everything
+      instead, install **MetaRead**.
+
+      **Requires a feeder to have anything to show:** **MetaFeeder · Suwayomi**
+      (with **MetaFeeder · AniList**) for comics and manga, **MetaFeeder · Gutenberg**
+      for public-domain books. Without one it runs perfectly and shows an empty
+      library — the honest state of a mesh nobody has fed.
+    fr_fr: |
+      **Un client de lecture pour le réseau MetaMesh — BD et manga, livres,
+      articles et documents numérisés.**
+
+      MetaRead est à la lecture ce que **MetaWatch** est à la vidéo : une
+      bibliothèque que l'on parcourt par *œuvre* plutôt que par nom de fichier.
+      Un chapitre s'ouvre dans un lecteur qui décode les pages **dans votre
+      navigateur** — le serveur n'est qu'un relais d'octets.
+
+      Cette version est la variante **backend partagé** : elle n'embarque que
+      sa propre découverte (meta-search) et **nécessite** les apps MetaCore et
+      MetaShare autonomes sur la même machine, qu'elle réutilise pour l'identité,
+      l'état et le transport. Un seul core, un seul share — aucun doublon, et le
+      même profil que MetaWatch.
+
+      **Nécessite un feeder** pour avoir quelque chose à afficher :
+      **MetaFeeder · Suwayomi** (avec **MetaFeeder · AniList**) pour la BD et le manga,
+      **MetaFeeder · Gutenberg** pour les livres du domaine public.
+
+  tagline:
+    en_us: MetaRead reusing the standalone MetaCore + MetaShare apps
+    fr_fr: MetaRead réutilisant les apps MetaCore et MetaShare autonomes
+
+  title:
+    en_us: MetaRead (shared backend)
+
+  icon: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaRead/icon.png
+  thumbnail: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaRead/thumbnail.png
+
+  store_app_id: metareadshared
+  is_uncontrolled: false
+
+  tips:
+    before_install:
+      en_us: |
+        **Requires MetaCore + MetaShare.** Install both standalone apps first —
+        this build reuses them instead of bundling its own copies. Only
+        meta-search is local to this stack.
+
+        **Conflicts with `MetaRead`.** Both use the compose project `metaread`
+        and the same data paths. Install one or the other, not both.
+
+        **Ports.** This stack publishes libp2p on host port **4006** (its
+        discovery peer). MetaWatch uses 4004 and the shared MetaShare uses
+        4001 — if you run another Meta* client, keep walking upward.
+
+        **Install order:**
+        1. **MetaGateway** — the peer that runs the feeders and announces what
+           they find.
+        2. **MetaFeeder · Suwayomi** (+ **MetaFeeder · AniList**) and/or
+           **MetaFeeder · Gutenberg**, then register each in the gateway's
+           *Add a feeder* box. Gateway feeder discovery is **startup-only**, so
+           the gateway restarts itself afterwards.
+        3. This app.
+
+        **Authentication:** MetaRead has its **own** sign-in — a profile is a
+        secp256k1 keypair and you prove it by signing a challenge, so the secret
+        key never leaves the browser. There is no Authelia/OIDC layer in front
+        of the reader; creating a profile needs an invite link from an existing
+        user. The profile is the same one MetaWatch uses on this box.
+
+        **An empty library is not a fault.** MetaRead holds no catalogue of its
+        own. If the grid is empty, the question is whether a feeder is attached
+        and whether this stack's discovery peer has joined the DHT — the
+        *meta-search* chip in the top bar shows its peer count.
+
+# Maison (Yundera dashboard) configuration. Read in preference to x-casaos.
+# schema_version 2 is required for `folders`: an older Maison refuses the app
+# outright rather than starting it without its directories.
+x-compose-app:
+  schema_version: 2
+  folders:
+    - path: /DATA/AppData/metaread/data
+      user: $PUID
+      group: $PGID
+    - path: /DATA/AppData/metaread/search-data
+      user: $PUID
+      group: $PGID
+  # Same string as the caddy_0 label, so the tile link and the route agree.
+  webui-host: metaread-${domain}
+  webui-path: "/"

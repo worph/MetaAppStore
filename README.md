@@ -21,7 +21,7 @@ https://github.com/Worph/MetaAppStore/archive/refs/heads/main.zip
 | Core | `MetaCore` (leader election, Redis, WebDAV) |
 | Library | `MetaSort`, `MetaFuse`, `MetaStremio` |
 | Network | `MetaShare` (content transport), `MetaGateway`, `MetaGatewayShared` |
-| Clients | `MetaWatch`, `MetaWatchShared`, `MetaRead` |
+| Clients | `MetaWatch`, `MetaWatchShared`, `MetaRead`, `MetaReadShared` |
 | Feeders | `MetaFeederAniList`, `MetaFeederArxiv`, `MetaFeederEuropePMC`, `MetaFeederGiphy`, `MetaFeederGutenberg`, `MetaFeederInternetArchive`, `MetaFeederJamendo`, `MetaFeederMusicBrainz`, `MetaFeederOpenSubtitles`, `MetaFeederProwlarr`, `MetaFeederSciHub`, `MetaFeederSuwayomi`, `MetaFeederTMDB`, `MetaFeederTribler`, `MetaFeederUsenet`, `MetaFeederWikiCommons`, `MetaFeederYouTube` |
 | Plugins | `MetaPluginAnimeDetector`, `MetaPluginFFmpeg`, `MetaPluginFileInfo`, `MetaPluginFilenameParser`, `MetaPluginFullHash`, `MetaPluginJellyfinNFO`, `MetaPluginLanguage`, `MetaPluginOpenSubtitles`, `MetaPluginStillExtractor`, `MetaPluginSubtitle`, `MetaPluginSubtitleExtractor`, `MetaPluginTMDB` — headless enrichment workers, one per `metamesh-plugin-*` image |
 

@@ -86,6 +86,10 @@ services:
       # The standalone MetaCore app. Port 80 is its hash-lock/appshield-free
       # backend port on `pcs` — NOT 9000 (that is the self-contained variant's
       # private core).
+      # Distinct from metaread-search on the same core, so the two discovery
+      # peers do not register under one name.
+      SERVICE_NAME: "metawatch-search"
+      META_SEARCH_PUBLIC_URL: "https://metawatchsearch-${APP_DOMAIN}"
       META_CORE_URL: "http://metacore-app:80"
       BASE_URL: "http://metawatch-search:3000"
       INTERNAL_BASE_URL: "http://metawatch-search:3000"
@@ -111,7 +115,7 @@ services:
   # owns the caddy_* labels directly and Caddy proxies straight to :3000.
   # ---------------------------------------------------------------------------
   metawatch-app:
-    image: ghcr.io/worph/meta-watch:1.0.67
+    image: ghcr.io/worph/meta-watch:1.0.68
     container_name: metawatch-app
     hostname: metawatch-app
     restart: unless-stopped

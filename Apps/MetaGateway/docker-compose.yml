@@ -75,7 +75,7 @@ services:
   metagateway-share:
     # 1.0.8 = rsa-enabled libp2p (joins the public IPFS DHT — see metagateway-app)
     # + P2P_ANNOUNCE support so remote peers can dial this bitswap seeder.
-    image: ghcr.io/worph/meta-share:1.0.35
+    image: ghcr.io/worph/meta-share:1.0.36
     container_name: metagateway-share
     # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
     # instead of swap. Mirrors the dev sub-stack limits.
@@ -163,8 +163,10 @@ services:
     container_name: metagateway-app
     # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
     # instead of swap. Mirrors the dev sub-stack limits.
-    mem_limit: 1g
-    memswap_limit: 1g
+    # 1g -> 2g (2026-09-30): the DHT-joined dispatcher runs at ~1.2 GiB on
+    # watch.nsl.sh, so the 1g cap was an OOM loop in waiting.
+    mem_limit: 2g
+    memswap_limit: 2g
     hostname: metagateway-app
     restart: unless-stopped
     cpu_shares: 40
@@ -206,6 +208,12 @@ services:
       # peer-id, every provider record it published was stale within seconds —
       # remote peers only ever got "Unexpected peer ID". 128 is the default;
       # raise it only together with the memory limit.
+      # glibc malloc: cap the per-thread arenas and hand freed memory back to
+      # the OS. Without them RSS ratchets upward under a burst of fan-out
+      # queries and never comes down, which is what the cap above then kills.
+      MALLOC_ARENA_MAX: "2"
+      MALLOC_MMAP_THRESHOLD_: "131072"
+      MALLOC_TRIM_THRESHOLD_: "131072"
       META_GATEWAY_MAX_CONNECTIONS: "128"
       META_GATEWAY_P2P_LISTEN: "/ip4/0.0.0.0/tcp/4002"
       # Setting a PUBLIC_ADDR is what flips the gateway out of local/mDNS-only
@@ -287,8 +295,16 @@ services:
       # `PUT /api/gateway/plugins/:id` stay behind AppShield.
       caddy_0.1_handle: "/api/gateway/plugins"
       caddy_0.1_handle.reverse_proxy: "metagateway-app:3000"
-      caddy_0.2_handle: ""
-      caddy_0.2_handle.reverse_proxy: "{{upstreams 80}}"
+      # Content bytes by CID, fetched by REMOTE peers with no session — the
+      # same carve-out MetaShare has always had. meta-read builds cover hint
+      # URLs from a gateway-sourced record's originUrl, i.e. THIS host; behind
+      # AppShield they answered 302 → login and every cover fell back to
+      # cross-internet bitswap. Read-only; settings/search/stats stay gated.
+      # Must stay ahead of the empty catch-all.
+      caddy_0.2_handle: "/api/file/*"
+      caddy_0.2_handle.reverse_proxy: "metagateway-app:3000"
+      caddy_0.3_handle: ""
+      caddy_0.3_handle.reverse_proxy: "{{upstreams 80}}"
 
       # ---- metagateway-IP.nip.io (gateway TLS) ----
       caddy_1: metagateway-${APP_PUBLIC_IP_DASH}.nip.io
@@ -300,8 +316,10 @@ services:
       # `PUT /api/gateway/plugins/:id` stay behind AppShield.
       caddy_1.1_handle: "/api/gateway/plugins"
       caddy_1.1_handle.reverse_proxy: "metagateway-app:3000"
-      caddy_1.2_handle: ""
-      caddy_1.2_handle.reverse_proxy: "{{upstreams 80}}"
+      caddy_1.2_handle: "/api/file/*"
+      caddy_1.2_handle.reverse_proxy: "metagateway-app:3000"
+      caddy_1.3_handle: ""
+      caddy_1.3_handle.reverse_proxy: "{{upstreams 80}}"
 
       # ---- metagateway-IP.sslip.io (Let's Encrypt) ----
       caddy_2: metagateway-${APP_PUBLIC_IP_DASH}.sslip.io
@@ -312,8 +330,10 @@ services:
       # `PUT /api/gateway/plugins/:id` stay behind AppShield.
       caddy_2.1_handle: "/api/gateway/plugins"
       caddy_2.1_handle.reverse_proxy: "metagateway-app:3000"
-      caddy_2.2_handle: ""
-      caddy_2.2_handle.reverse_proxy: "{{upstreams 80}}"
+      caddy_2.2_handle: "/api/file/*"
+      caddy_2.2_handle.reverse_proxy: "metagateway-app:3000"
+      caddy_2.3_handle: ""
+      caddy_2.3_handle.reverse_proxy: "{{upstreams 80}}"
     networks:
       - metagateway
       - pcs

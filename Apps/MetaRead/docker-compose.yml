@@ -14,6 +14,11 @@ name: metaread
 #   metaread-share  →  pure content transport (byte Range, bitswap, BT)
 #   metaread-app    →  the reader UI/back-end (behind OIDC)
 #
+# Contrast with `MetaReadShared` in this store, which ships only meta-search and
+# reuses the standalone MetaCore + MetaShare apps (one profile shared with
+# MetaWatch). Pick exactly one: both use compose project `metaread` and the same
+# /DATA/AppData/metaread paths.
+#
 # ⚠ **Distinct libp2p host ports.** MetaWatch already publishes 4003/4004; this
 # stack uses 4005/4006. Two peers cannot share a host port, and the failure is
 # a container that will not start rather than anything subtle — but if you run
@@ -141,7 +146,7 @@ services:
   # that lists correctly and will not open.
   # ---------------------------------------------------------------------------
   metaread-share:
-    image: ghcr.io/worph/meta-share:1.0.35
+    image: ghcr.io/worph/meta-share:1.0.36
     container_name: metaread-share
     # Smaller than MetaWatch's 3 GB on purpose: a chapter is tens of megabytes
     # where a film is gigabytes, and this peer never holds a whole video.
@@ -195,6 +200,11 @@ services:
     container_name: metaread-app
     hostname: metaread-app
     restart: unless-stopped
+    # The image's own USER is uid 10001, but the data dir is created as
+    # $PUID:$PGID by x-compose-app `folders`, so the stock user cannot write
+    # library.json, the session key or the tile cache. Pin the runtime uid to
+    # the one that owns the mount, as metawatch-app does.
+    user: "1000:1000"
     cpu_shares: 30
     mem_limit: 512m
     memswap_limit: 512m
