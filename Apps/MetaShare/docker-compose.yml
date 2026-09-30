@@ -337,6 +337,17 @@ x-compose-app:
     - path: /DATA/AppData/metashare/data
       user: $PUID
       group: $PGID
+  # Fetched content only: everything under these can be pulled again off the
+  # swarm/NNTP/HTTP (meta-share reclaim.rs, "cache means cache"). They are ~94G
+  # on a busy peer, so without this every backup — and Maison's pre-update
+  # rollback copy — duplicates the whole cache. A restore brings them back empty.
+  # Kept: config/ (settings), data/meta-share/ipfs/ (blockstore + material
+  # index), seeds.json and the other small state files.
+  backup:
+    exclude:
+      - data/meta-share/cache/
+      - data/meta-share/bt-temp/
+      - data/meta-share/tmp/
   # Same string as the caddy_0 label, so the tile link and the route agree.
   webui-host: metashare-${domain}
   webui-path: "/"
