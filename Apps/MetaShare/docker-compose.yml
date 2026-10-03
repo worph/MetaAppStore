@@ -11,7 +11,7 @@ services:
   #  - 3000  HTTP API + dashboard (proxied through the hash-lock + Caddy)
   #  - 3001  plugin callback API — internal only, never published
   metashare-app:
-    image: ghcr.io/worph/meta-share:2.0.0
+    image: ghcr.io/worph/meta-share:2.0.1
     container_name: metashare-app
     # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM instead of
     # swap. The swarm, blockstore and torrent session moved to the plugins, so
@@ -69,7 +69,7 @@ services:
   # BitTorrent tier (librqbit, streaming-only fork). Its peer listener must be
   # host-published so the swarm can dial in (idle seeding without a dial storm).
   metashare-torrent:
-    image: ghcr.io/worph/meta-transport-torrent:1.0.0
+    image: ghcr.io/worph/meta-transport-torrent:1.0.1
     container_name: metashare-torrent
     hostname: metashare-torrent
     restart: unless-stopped
@@ -99,12 +99,12 @@ services:
   # Usenet tier (NNTP, yEnc, par2/RAR). Reads the NNTP credentials from the
   # hull's settings.json; the hull restarts it when they change.
   metashare-nzb:
-    image: ghcr.io/worph/meta-transport-nzb:1.0.0
+    image: ghcr.io/worph/meta-transport-nzb:1.0.1
     container_name: metashare-nzb
     hostname: metashare-nzb
     restart: unless-stopped
-    mem_limit: 1g
-    memswap_limit: 1g
+    mem_limit: 3g
+    memswap_limit: 3g
     cpu_shares: 20
     stop_grace_period: 30s
     expose:
@@ -129,7 +129,7 @@ services:
   # bitswap ingress. libp2p TCP must be host-published — Caddy can't proxy it and
   # other peers' kad lookups dial the public multiaddr directly.
   metashare-ipfs:
-    image: ghcr.io/worph/meta-transport-ipfs:1.0.0
+    image: ghcr.io/worph/meta-transport-ipfs:1.0.1
     container_name: metashare-ipfs
     hostname: metashare-ipfs
     restart: unless-stopped
