@@ -1,122 +1,59 @@
 name: metashare
 
 services:
-  # Backend service. Reachable on the pcs network as `metashare-app`.
+  # Backend service (the hull). Reachable on the pcs network as `metashare-app`.
   # Public ingress goes through the `metashare` hash-lock proxy below.
   #
-  # Unlike the other meta apps, this container is a self-contained Rust
-  # binary serving Axum on :3000 directly (no nginx wrapper, no supervisord).
-  # Ports 3000 and 4001 are split:
+  # meta-share is the protocol-agnostic hull since 2.0.0: HTTP API + dashboard,
+  # material index, seed manifest, eviction, playback focus, meta-core. The
+  # byte-moving protocols run as the three transport plugins below (the
+  # `meta_feeder_sdk::transport` contract) and share its data volume:
   #  - 3000  HTTP API + dashboard (proxied through the hash-lock + Caddy)
-  #  - 4001  libp2p TCP listener — must be reachable on the public IP so
-  #          other archivists' peers can dial in via kad-DHT provider records.
+  #  - 3001  plugin callback API — internal only, never published
   metashare-app:
-    # 1.0.13 = nocopy library seeding (meta-core files seeded as filestore refs,
-    # no second on-disk copy) + core/cache source surfacing in the dashboard, on
-    # top of the 1.0.8 floor this pin still requires: rsa-enabled libp2p
-    # (required to join the public IPFS DHT — the bootstrap.libp2p.io nodes are
-    # RSA-keyed; without `rsa` the noise handshake fails and this peer never
-    # actually reaches the DHT) + PUBLIC_ADDR support so remote archivists can
-    # dial this seeder.
-    image: ghcr.io/worph/meta-share:1.0.36
+    image: ghcr.io/worph/meta-share:2.0.0
     container_name: metashare-app
-    # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
-    # instead of swap. Mirrors the dev sub-stack limits.
-    mem_limit: 3g
-    memswap_limit: 3g
+    # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM instead of
+    # swap. The swarm, blockstore and torrent session moved to the plugins, so
+    # the hull needs far less than the 3g the monolith did.
+    mem_limit: 1g
+    memswap_limit: 1g
     hostname: metashare-app
     restart: unless-stopped
     cpu_shares: 20
-
-    # Give meta-share room to shut down cleanly on SIGTERM (docker stop /
-    # `up -d` recreate) before docker escalates to SIGKILL. The binary catches
-    # SIGTERM, drains in-flight HTTP briefly, then unwinds so redb's Database
-    # Drop writes its allocator-state table — without which the next open runs a
-    # full multi-scan repair of blocks.redb (minutes of silent CPU before the
-    # port binds, proportional to blockstore size). 3s drain + the allocator
-    # write fits the 10s default, but a large store gets headroom here.
+    # Room for a clean SIGTERM shutdown: redb's `material.redb` writes its
+    # allocator state on Drop, or the next open runs a full repair scan.
     stop_grace_period: 30s
 
     expose:
       - 3000   # HTTP API (Axum)
-
-    # libp2p TCP must be host-published. Caddy can't proxy it (not HTTP)
-    # and other peers' kad-DHT lookups dial the public multiaddr directly.
-    ports:
-      - "4001:4001"
+      - 3001   # plugin callback API (internal)
 
     volumes:
-      # Shared infrastructure state (leader election, Redis dump, service discovery)
-      # Owned by MetaCore; mounted rw here so meta-share registers under services/.
-      # No /meta-core mount: this service locates meta-core over UDP
-      # (meta-discovery v1) instead of reading kv-leader.info off a shared
-      # volume. See docs/project-architecture/service-discovery.md.
-      # Operator settings (META_SHARE_CONFIG_DIR, default /config): settings.json
-      # holds the NNTP credentials + per-indexer API keys entered in the dashboard.
-      # MUST be persisted — without this mount they live on the container's
-      # writable layer and are lost on every image bump / recreate, forcing the
-      # operator to re-enter their credentials after each update.
+      # Operator settings (META_SHARE_CONFIG_DIR): settings.json holds the NNTP
+      # credentials and network endpoints. MUST be persisted (else lost on every
+      # image bump). The nzb and ipfs plugins mount it read-only.
       - ${DATA_ROOT:-/DATA}/AppData/metashare/config:/config:rw
-      # Seeded bytes + the seed index (META_SHARE_DATA, default /data/meta-share):
-      # the redb IPFS blockstore, seed manifest, librqbit sparse torrent files
-      # (bt-temp/), the NZB cache and the ipfs-seed cursor. Recomputable, but a
-      # peer whose job is "fetch implies seed" comes back seeding NOTHING after a
-      # recreate without this, and re-downloads everything from a cold swarm.
+      # The shared data volume (META_SHARE_DATA): cache/, tmp/, seeds.json and
+      # material.redb are the hull's; bt-temp/ (torrent), tmp/<cid> jobs (nzb)
+      # and ipfs/blocks.redb (ipfs) are the plugins' corners of the SAME mount —
+      # one mount, so the tmp/ → cache/ rename(2) stays atomic. Layout unchanged
+      # from the monolith: existing caches carry over.
       - ${DATA_ROOT:-/DATA}/AppData/metashare/data:/data:rw
 
-    # Note: no /files mounts — meta-share resolves file paths through MetaCore's
-    # WebDAV URL (Architecture V3). META_SHARE_FILES_PATH is only used as the
-    # prefix for translating absolute filePaths back to WebDAV-relative paths.
-
     environment:
-      - P2P_LISTEN=/ip4/0.0.0.0/tcp/4001
-      # Advertise the routable address (published host port 4001) so kad
-      # provider records + identify carry a dialable multiaddr — otherwise,
-      # behind Docker NAT, the swarm only sees container-internal addresses
-      # and remote archivists can't dial in to fetch seeded blocks.
-      # ${APP_PUBLIC_IPV4}, NOT ${APP_PUBLIC_IP}: on an IPv6-primary PCS
-      # APP_PUBLIC_IP holds the v6 address, and `/ip4/<v6>/tcp/...` is not a
-      # parseable multiaddr — meta-share REFUSES TO START rather than announce
-      # a lie (config.rs: "PUBLIC_ADDR is not a valid multiaddr").
-      - PUBLIC_ADDR=/ip4/${APP_PUBLIC_IPV4}/tcp/4001
-      # Public IPFS DHT bootstraps by explicit /dns4/.../tcp/4001. The default
-      # nested-dnsaddr form resolves to wss-only in some container resolvers
-      # (no ws transport → no bootstrap); these direct addresses avoid that.
-      # Includes mars.i.ipfs.io — the only surviving legacy *.i.ipfs.io
-      # bootstrapper. Resilience: the four IPFS-Foundation bootstrappers can refuse
-      # an individual IP, and when they do a peer cannot join the DHT AT ALL.
-      # Observed on watch.nsl.sh 2026-09-01: 2 connections with the four alone,
-      # 126 once a reachable fifth was added.
-      - KAD_BOOTSTRAP_PEERS=/dns4/sg1.bootstrap.libp2p.io/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt,/dns4/sv15.bootstrap.libp2p.io/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN,/dns4/ny5.bootstrap.libp2p.io/tcp/4001/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa,/dns4/am6.bootstrap.libp2p.io/tcp/4001/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb,/dns4/mars.i.ipfs.io/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ
-
-      # Service registration into /meta-core/services/
+      - META_SHARE_PLUGIN_TORRENT_URL=http://metashare-torrent:3000
+      - META_SHARE_PLUGIN_NZB_URL=http://metashare-nzb:3000
+      - META_SHARE_PLUGIN_IPFS_URL=http://metashare-ipfs:3000
+      # Service registration / neighbour announce.
       - BASE_URL=https://metashare-$APP_DOMAIN
-
-      # meta-core ingestion — the local archivist's library. This peer pulls
-      # records from MetaCore and announces them on the Kamilata swarm.
+      # meta-core ingestion — the local archivist's library.
       - META_CORE_URL=http://metacore-app:80
-
-      # Inter-peer fetch URL — where another archivist's meta-share reaches
-      # this peer's HTTP API. Same as BASE_URL for prod (other peers fetch
-      # via the public Caddy URL, which routes back through this hash-lock
-      # proxy with /api/peer/* and /api/file/* on the bypass list).
-      #
-      # Renamed at the 1.0.24 bump (2026-08-04), as the old note here said to do:
-      # META_SHARE_PEER_API_URL was the pre-1.0.8 spelling. watch.nsl.sh runs
-      # 1.0.24 with INTERNAL_BASE_URL and registers its peer_url correctly, so the
-      # deprecated name is no longer needed. Do NOT set both.
+      # Inter-peer fetch URL, announced in identify by the ipfs plugin. Same as
+      # BASE_URL in prod (other peers fetch via the public Caddy URL).
       - INTERNAL_BASE_URL=https://metashare-$APP_DOMAIN
-
-      # NOTE: KAD_NAMESPACE, TARGET_PEER_COUNT, ENABLE_MDNS, META_CORE_POLL_SECS,
-      # META_CORE_MAX_RECORDS, HTTP_LISTEN, SERVICE_NAME and RUST_LOG were all
-      # dropped — each merely restated the code default in meta-share:1.0.8.
-      # Set KAD_NAMESPACE to a non-default value to isolate a private cohort
-      # (every peer in the cohort must agree on it).
-
       - TZ=$TZ
 
-    # Runs as root because the meta-core volume is provisioned mode 0755 by
-    # MetaCore (root). Same convention as the other meta apps.
     user: 0:0
 
     healthcheck:
@@ -128,6 +65,118 @@ services:
 
     networks:
       - pcs
+
+  # BitTorrent tier (librqbit, streaming-only fork). Its peer listener must be
+  # host-published so the swarm can dial in (idle seeding without a dial storm).
+  metashare-torrent:
+    image: ghcr.io/worph/meta-transport-torrent:1.0.0
+    container_name: metashare-torrent
+    hostname: metashare-torrent
+    restart: unless-stopped
+    mem_limit: 1g
+    memswap_limit: 1g
+    cpu_shares: 20
+    stop_grace_period: 30s
+    expose:
+      - 3000
+    ports:
+      - "4240:4240"
+    volumes:
+      - ${DATA_ROOT:-/DATA}/AppData/metashare/data:/data:rw
+    environment:
+      - META_SHARE_HULL_URL=http://metashare-app:3001
+      - TZ=$TZ
+    user: 0:0
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+    networks:
+      - pcs
+
+  # Usenet tier (NNTP, yEnc, par2/RAR). Reads the NNTP credentials from the
+  # hull's settings.json; the hull restarts it when they change.
+  metashare-nzb:
+    image: ghcr.io/worph/meta-transport-nzb:1.0.0
+    container_name: metashare-nzb
+    hostname: metashare-nzb
+    restart: unless-stopped
+    mem_limit: 1g
+    memswap_limit: 1g
+    cpu_shares: 20
+    stop_grace_period: 30s
+    expose:
+      - 3000
+    volumes:
+      - ${DATA_ROOT:-/DATA}/AppData/metashare/config:/config:ro
+      - ${DATA_ROOT:-/DATA}/AppData/metashare/data:/data:rw
+    environment:
+      - META_SHARE_HULL_URL=http://metashare-app:3001
+      - TZ=$TZ
+    user: 0:0
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+    networks:
+      - pcs
+
+  # IPFS tier: the libp2p host (identify/kad/mdns/bitswap), the blockstore and
+  # bitswap ingress. libp2p TCP must be host-published — Caddy can't proxy it and
+  # other peers' kad lookups dial the public multiaddr directly.
+  metashare-ipfs:
+    image: ghcr.io/worph/meta-transport-ipfs:1.0.0
+    container_name: metashare-ipfs
+    hostname: metashare-ipfs
+    restart: unless-stopped
+    # The blockstore's redb page cache + the swarm live here now.
+    mem_limit: 2g
+    memswap_limit: 2g
+    cpu_shares: 20
+    stop_grace_period: 30s
+    expose:
+      - 3000
+    ports:
+      - "4001:4001"
+    volumes:
+      - ${DATA_ROOT:-/DATA}/AppData/metashare/config:/config:ro
+      - ${DATA_ROOT:-/DATA}/AppData/metashare/data:/data:rw
+    environment:
+      - META_SHARE_HULL_URL=http://metashare-app:3001
+      - P2P_LISTEN=/ip4/0.0.0.0/tcp/4001
+      # Advertise the routable address so kad provider records + identify carry
+      # a dialable multiaddr. ${APP_PUBLIC_IPV4}, NOT ${APP_PUBLIC_IP}: on an
+      # IPv6-primary PCS the latter is v6 and `/ip4/<v6>/…` won't parse (the
+      # plugin refuses to start rather than announce a lie).
+      - PUBLIC_ADDR=/ip4/${APP_PUBLIC_IPV4}/tcp/4001
+      # Public IPFS DHT bootstraps by explicit /dns4/…/tcp/4001 (the nested
+      # dnsaddr form resolves to wss-only in some container resolvers), plus
+      # mars.i.ipfs.io — the four IPFS-Foundation bootstrappers can refuse an
+      # individual IP (watch.nsl.sh 2026-09-01: 2 connections → 126 with a fifth).
+      - KAD_BOOTSTRAP_PEERS=/dns4/sg1.bootstrap.libp2p.io/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt,/dns4/sv15.bootstrap.libp2p.io/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN,/dns4/ny5.bootstrap.libp2p.io/tcp/4001/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa,/dns4/am6.bootstrap.libp2p.io/tcp/4001/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb,/dns4/mars.i.ipfs.io/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ
+      # Seed fallbacks when the hull's settings.json doesn't exist yet.
+      - META_CORE_URL=http://metacore-app:80
+      - INTERNAL_BASE_URL=https://metashare-$APP_DOMAIN
+      - TZ=$TZ
+    user: 0:0
+    # The hull migrates its material index out of ipfs/blocks.redb on its first
+    # 2.x boot; redb is single-process, so the plugin waits for it.
+    depends_on:
+      metashare-app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+    networks:
+      - pcs
+
 
   # OIDC perimeter for the MetaShare dashboard. Self-registers as an OIDC client
   # with the platform's auth-registrar on first login (no secrets to manage).
