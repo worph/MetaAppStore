@@ -223,7 +223,7 @@ services:
   # My List + Continue Watching persist in /DATA/AppData/metawatch/data.
   # ---------------------------------------------------------------------------
   metawatch-app:
-    image: ghcr.io/worph/meta-watch:1.0.68
+    image: ghcr.io/worph/meta-watch:1.0.74
     container_name: metawatch-app
     hostname: metawatch-app
     restart: unless-stopped
