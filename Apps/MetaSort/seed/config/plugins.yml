@@ -15,7 +15,7 @@ defaults:
 plugins:
   file-info:
     enabled: true
-    image: ghcr.io/worph/metamesh-plugin-file-info:1.0.1
+    image: ghcr.io/worph/metamesh-plugin-file-info:1.0.2
     instances: 1
     resources:
       memory: 128m
@@ -23,7 +23,7 @@ plugins:
 
   ffmpeg:
     enabled: true
-    image: ghcr.io/worph/metamesh-plugin-ffmpeg:1.0.0
+    image: ghcr.io/worph/metamesh-plugin-ffmpeg:1.0.1
     instances: 1
     resources:
       memory: 512m
@@ -31,7 +31,7 @@ plugins:
 
   subtitle:
     enabled: true
-    image: ghcr.io/worph/metamesh-plugin-subtitle:1.0.1
+    image: ghcr.io/worph/metamesh-plugin-subtitle:1.0.2
     instances: 1
     resources:
       memory: 128m
@@ -39,7 +39,7 @@ plugins:
 
   subtitle-extractor:
     enabled: true
-    image: ghcr.io/worph/metamesh-plugin-subtitle-extractor:1.0.1
+    image: ghcr.io/worph/metamesh-plugin-subtitle-extractor:1.0.3
     instances: 1
     resources:
       memory: 512m
@@ -48,7 +48,7 @@ plugins:
 
   still-extractor:
     enabled: true
-    image: ghcr.io/worph/metamesh-plugin-still-extractor:1.0.1
+    image: ghcr.io/worph/metamesh-plugin-still-extractor:1.0.3
     instances: 1
     resources:
       memory: 512m

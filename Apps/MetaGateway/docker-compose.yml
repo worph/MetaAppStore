@@ -81,7 +81,7 @@ services:
     # MetaShare app's `metashare-<tier>` hostnames, which on a shared `pcs`
     # would be ANOTHER hull's plugins writing to another /data).
     #  - 3000  HTTP API   - 3001  plugin callback API (internal only)
-    image: ghcr.io/worph/meta-share:2.2.1
+    image: ghcr.io/worph/meta-share:2.3.0
     container_name: metagateway-share
     # The swarm and blockstore moved to the ipfs plugin, so the hull needs far
     # less than the monolith did.
@@ -129,7 +129,7 @@ services:
     # mDNS, bitswap), the blockstore, gateway discovery and the peer directory
     # the hull uses to forward Usenet cids. Waits up to 60 s for the hull's
     # internal /health before opening blocks.redb, so no depends_on.
-    image: ghcr.io/worph/meta-transport-ipfs:1.2.0
+    image: ghcr.io/worph/meta-transport-ipfs:1.2.1
     container_name: metagateway-share-ipfs
     hostname: metagateway-share-ipfs
     restart: unless-stopped
@@ -181,7 +181,7 @@ services:
     # P2P listen/announce so it's discoverable + dialable off-host + the
     # 2026-07 discovery/filters fixes that make the meta-search fan-out
     # actually route `fileType:video` queries here.
-    image: ghcr.io/worph/meta-gateway:1.0.40
+    image: ghcr.io/worph/meta-gateway:1.0.41
     container_name: metagateway-app
     # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
     # instead of swap. Mirrors the dev sub-stack limits.

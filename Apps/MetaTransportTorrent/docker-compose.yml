@@ -16,7 +16,7 @@ name: metatransporttorrent
 
 services:
   metashare-torrent:
-    image: ghcr.io/worph/meta-transport-torrent:1.2.0
+    image: ghcr.io/worph/meta-transport-torrent:1.2.1
     container_name: metashare-torrent
     hostname: metashare-torrent
     restart: unless-stopped

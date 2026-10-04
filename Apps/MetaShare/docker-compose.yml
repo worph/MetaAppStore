@@ -13,7 +13,7 @@ services:
   #  - 3000  HTTP API + dashboard (proxied through the hash-lock + Caddy)
   #  - 3001  plugin callback API — internal only, never published
   metashare-app:
-    image: ghcr.io/worph/meta-share:2.2.1
+    image: ghcr.io/worph/meta-share:2.3.0
     container_name: metashare-app
     # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM instead of
     # swap. The swarm, blockstore and torrent session moved to the plugins, so

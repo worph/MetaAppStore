@@ -22,7 +22,7 @@ services:
   # metafeederwikicommons-feeder — the wikicommons feeder. Keyless; no config needed.
   # ---------------------------------------------------------------------------
   metafeederwikicommons-feeder:
-    image: ghcr.io/worph/meta-feeder-wikicommons:1.0.0
+    image: ghcr.io/worph/meta-feeder-wikicommons:1.0.1
     cpu_shares: 30
     container_name: metafeederwikicommons-feeder
     hostname: metafeederwikicommons-feeder

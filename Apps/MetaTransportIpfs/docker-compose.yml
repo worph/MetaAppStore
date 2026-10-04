@@ -16,7 +16,7 @@ name: metatransportipfs
 
 services:
   metashare-ipfs:
-    image: ghcr.io/worph/meta-transport-ipfs:1.2.0
+    image: ghcr.io/worph/meta-transport-ipfs:1.2.1
     container_name: metashare-ipfs
     hostname: metashare-ipfs
     restart: unless-stopped

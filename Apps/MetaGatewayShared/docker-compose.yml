@@ -33,7 +33,7 @@ services:
   # co-located metashare-app then seeds the resolved CIDs.
   # ---------------------------------------------------------------------------
   metagateway-app:
-    image: ghcr.io/worph/meta-gateway:1.0.40
+    image: ghcr.io/worph/meta-gateway:1.0.41
     container_name: metagateway-app
     hostname: metagateway-app
     restart: unless-stopped
@@ -144,7 +144,7 @@ services:
   # Runs as 10001:999 — the uid/gid baked into the meta-feeder-tmdb image.
   # ---------------------------------------------------------------------------
   metagateway-card:
-    image: ghcr.io/worph/meta-feeder-tmdb:1.0.3
+    image: ghcr.io/worph/meta-feeder-tmdb:1.0.4
     container_name: metagateway-card
     hostname: metagateway-card
     restart: unless-stopped

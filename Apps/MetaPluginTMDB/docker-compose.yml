@@ -33,7 +33,7 @@ services:
   # consumer on the box can reach it by name. Default queue: background.
   # ---------------------------------------------------------------------------
   metaplugintmdb-plugin:
-    image: ghcr.io/worph/metamesh-plugin-tmdb:1.0.3
+    image: ghcr.io/worph/metamesh-plugin-tmdb:1.0.4
     cpu_shares: 30
     container_name: metaplugintmdb-plugin
     # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
