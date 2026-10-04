@@ -9,6 +9,10 @@ name: metatransportnzb
 # `tmp/` → `cache/` promote is one rename(2), and the hull reads plugin-written
 # files directly). Its own settings live in its state dir (config.json), edited
 # through MetaShare's dashboard.
+#
+# A headless service: no tile link, no Caddy route, no AppShield. Its config
+# page is reached only through MetaShare (Plugins → configure, proxied by
+# /api/plugins/<name>/ui/*), behind MetaShare's own perimeter.
 
 services:
   metashare-nzb:
@@ -39,45 +43,9 @@ services:
       retries: 10
       start_period: 30s
     networks:
-      - metatransportnzb
-      - pcs
-
-  # OIDC perimeter in front of the plugin's own config page (the tile link).
-  # MetaShare's dashboard embeds the same page through its own proxy.
-  metatransportnzb:
-    image: ghcr.io/yundera/appshield:2.0.9
-    cpu_shares: 80
-    container_name: metatransportnzb
-    hostname: metatransportnzb
-    restart: unless-stopped
-    user: "0:0"
-    expose:
-      - 80
-    environment:
-      OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
-      REDIRECT_HOST_SUFFIXES: "${APP_DOMAIN},${APP_PUBLIC_IP_DASH}.nip.io,${APP_PUBLIC_IP_DASH}.sslip.io"
-      BACKEND_HOST: "metashare-nzb"
-      BACKEND_PORT: "3000"
-      LISTEN_PORT: "80"
-    labels:
-      caddy_0: metatransportnzb-${APP_DOMAIN}
-      caddy_0.import: gateway_tls
-      caddy_0.reverse_proxy: "{{upstreams 80}}"
-      caddy_1: metatransportnzb-${APP_PUBLIC_IP_DASH}.nip.io
-      caddy_1.import: gateway_tls
-      caddy_1.reverse_proxy: "{{upstreams 80}}"
-      caddy_2: metatransportnzb-${APP_PUBLIC_IP_DASH}.sslip.io
-      caddy_2.reverse_proxy: "{{upstreams 80}}"
-    depends_on:
-      - metashare-nzb
-    networks:
-      - metatransportnzb
       - pcs
 
 networks:
-  metatransportnzb:
-    name: metatransportnzb
-    driver: bridge
   pcs:
     name: ${APP_NET:-pcs}
     external: true
@@ -90,9 +58,6 @@ x-casaos:
   category: Media
   tags: ["media"]
   developer: Aptero Team
-  main: metatransportnzb
-  webui_port: 80
-  index: /config
 
   description:
     en_us: |
@@ -143,8 +108,7 @@ x-casaos:
         driven by it. MetaShare picks it up automatically within ~10 s; check
         **MetaShare → Plugins**, where it shows as *live*.
 
-        Settings: **MetaShare → Plugins → nzb → configure** (or this app's own
-        tile). Saving restarts the plugin to apply.
+        Settings: **MetaShare → Plugins → nzb → configure**. Saving restarts the plugin to apply.
 
 # Maison (Yundera dashboard) configuration. Read in preference to x-casaos.
 x-compose-app:
@@ -153,6 +117,7 @@ x-compose-app:
     - path: /DATA/AppData/metatransportnzb/state
       user: $PUID
       group: $PGID
-  # Same string as the caddy_0 label, so the tile link and the route agree.
-  webui-host: metatransportnzb-${domain}
-  webui-path: "/config"
+  # An extension of MetaShare: no tile of its own, nested under MetaShare's,
+  # and listed in the store under MetaShare's Extensions. Presentation only —
+  # lifecycle and backups stay per-app.
+  parent: metashare
