@@ -89,8 +89,8 @@ services:
       - "4004:4001"
     volumes:
       # No /meta-core mount: this service locates meta-core over UDP
-      # (meta-discovery v1) instead of reading kv-leader.info off a shared
-      # volume. See docs/project-architecture/service-discovery.md.
+      # (beacon v2) instead of reading kv-leader.info off a shared
+      # volume. See docs/project-architecture/beacon-v2.md.
       # META_SHARE_DATA (default /data/meta-share): prefs.json (language prefs)
       # + the redb blockstore holding poster/thumbnail blocks recovered off the
       # swarm. Without this mount both are on the container's writable layer and
@@ -143,66 +143,49 @@ services:
       - pcs
 
   # ---------------------------------------------------------------------------
-  # metawatch-share — pure content TRANSPORT peer. Byte Range proxy for
-  # playback/probe/warm/playback-focus over bitswap + a BitTorrent tier; seeds
-  # whatever it fetches. Public libp2p on host port 4003.
+  # metawatch-share (+ metawatch-share-ipfs) — content TRANSPORT peer: the
+  # meta-share hull with one ipfs plugin. Byte Range proxy for playback/probe/
+  # warm/playback-focus over bitswap; seeds whatever it fetches; Usenet cids are
+  # forwarded to a credentialed gateway. Public libp2p on host port 4003.
   # ---------------------------------------------------------------------------
   metawatch-share:
-    # 1.0.13 = nocopy library seeding + core/cache source surfacing, on top of
-    # the 1.0.8 floor: rsa-enabled libp2p (joins the public IPFS DHT) +
-    # P2P_ANNOUNCE so remote peers can dial this transport peer to fetch the
-    # bytes it seeds (fetch-implies-seed). Without rsa it never reaches the DHT.
-    image: ghcr.io/worph/meta-share:1.0.36
+    # The meta-share HULL (2.x): HTTP API, material index, seed manifest,
+    # eviction, playback focus, meta-core ingest. Every byte-moving protocol is
+    # a transport plugin; this bundle ships ONE — metawatch-share-ipfs below — which
+    # makes it the playback cache: bitswap fetch + re-seed, and Usenet cids forwarded to a credentialed gateway. Torrent and local NZB tiers are not bundled
+    # (META_SHARE_PLUGIN_{TORRENT,NZB}_URL=off keeps the hull from seeding the
+    # MetaShare app's `metashare-<tier>` hostnames, which on a shared `pcs`
+    # would be ANOTHER hull's plugins writing to another /data).
+    #  - 3000  HTTP API   - 3001  plugin callback API (internal only)
+    image: ghcr.io/worph/meta-share:2.2.1
     container_name: metawatch-share
-    # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
-    # instead of swap. Mirrors the dev sub-stack limits.
-    mem_limit: 3g
-    memswap_limit: 3g
+    # The swarm and blockstore moved to the ipfs plugin, so the hull needs far
+    # less than the monolith did.
+    mem_limit: 1g
+    memswap_limit: 1g
     hostname: metawatch-share
     restart: unless-stopped
     user: "0:0"
     cpu_shares: 30
+    # material.redb writes its allocator state on Drop; give SIGTERM room.
+    stop_grace_period: 30s
     expose:
       - 3000
-    ports:
-      - "4003:4001"
+      - 3001
     volumes:
-      # No /meta-core mount: this service locates meta-core over UDP
-      # (meta-discovery v1) instead of reading kv-leader.info off a shared
-      # volume. See docs/project-architecture/service-discovery.md.
-      # Operator settings written by the dashboard Settings panel (settings.json,
-      # e.g. optional direct-NNTP/Usenet credentials). Persisted on disk so
-      # dashboard edits survive container recreation — this stack has no separate
-      # credentialed gateway peer to forward to, so config lives here.
+      # settings.json — network endpoints and the plugin list.
       - ${DATA_ROOT:-/DATA}/AppData/metawatch/metashare-config:/config:rw
-      # Seeded/fetched bytes (META_SHARE_DATA, default /data/meta-share): redb
-      # blockstore, seed manifest, librqbit sparse files, NZB cache. This is the
-      # playback cache — without the mount every recreate re-downloads the lot
-      # from a cold swarm, and the peer seeds nothing back.
+      # The shared data volume: cache/, tmp/, seeds.json, material.redb are the
+      # hull's; ipfs/blocks.redb is the ipfs plugin's corner of the SAME folder
+      # (layout unchanged from 1.0.x, so an existing cache carries over).
       - ${DATA_ROOT:-/DATA}/AppData/metawatch/share-data:/data:rw
     environment:
-      P2P_LISTEN: "/ip4/0.0.0.0/tcp/4001"
-      # Advertise the routable address (published host port 4003) so remote
-      # peers can dial this transport peer for the bytes it seeds. Behind
-      # Docker NAT the swarm otherwise only sees container-internal addresses.
-      # Use the IPV4 spelling, NOT the bare APP_PUBLIC_IP: on an IPv6-primary
-      # PCS that variable holds the v6 address, and `/ip4/<v6>/tcp/...` is not a
-      # parseable multiaddr — meta-share REFUSES TO START rather than announce
-      # a lie (config.rs: "PUBLIC_ADDR is not a valid multiaddr").
-      PUBLIC_ADDR: "/ip4/${APP_PUBLIC_IPV4}/tcp/4003"
-      # Public IPFS DHT bootstraps by explicit /dns4/.../tcp/4001 (the nested
-      # dnsaddr default resolves to wss-only in some container resolvers).
-      # Includes mars.i.ipfs.io — the only surviving legacy *.i.ipfs.io
-      # bootstrapper (neptune/pluto/uranus/earth/saturn/venus are all NXDOMAIN).
-      # It is here for resilience: the four IPFS-Foundation bootstrappers can
-      # refuse an individual IP, and when they do a peer cannot join the DHT AT
-      # ALL — no provider record, no discovery, no gateway fan-out. Observed on
-      # watch.nsl.sh 2026-09-01: 2 connections with the four alone, 126 once a
-      # reachable fifth was added. Costs nothing when the four work.
-      KAD_BOOTSTRAP_PEERS: "/dns4/sg1.bootstrap.libp2p.io/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt,/dns4/sv15.bootstrap.libp2p.io/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN,/dns4/ny5.bootstrap.libp2p.io/tcp/4001/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa,/dns4/am6.bootstrap.libp2p.io/tcp/4001/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb,/dns4/mars.i.ipfs.io/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
       META_CORE_URL: "http://metawatch-core:9000"
       BASE_URL: "http://metawatch-share:3000"
       INTERNAL_BASE_URL: "http://metawatch-share:3000"
+      META_SHARE_PLUGIN_IPFS_URL: "http://metawatch-share-ipfs:3000"
+      META_SHARE_PLUGIN_TORRENT_URL: "off"
+      META_SHARE_PLUGIN_NZB_URL: "off"
       TZ: "$TZ"
     depends_on:
       metawatch-core:
@@ -212,7 +195,51 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-      start_period: 5s
+      start_period: 10s
+    networks:
+      - metawatch
+      - pcs
+
+  metawatch-share-ipfs:
+    # The hull's only transport plugin: the libp2p swarm (kad-DHT, identify,
+    # mDNS, bitswap), the blockstore, gateway discovery and the peer directory
+    # the hull uses to forward Usenet cids. Waits up to 60 s for the hull's
+    # internal /health before opening blocks.redb, so no depends_on.
+    image: ghcr.io/worph/meta-transport-ipfs:1.2.0
+    container_name: metawatch-share-ipfs
+    hostname: metawatch-share-ipfs
+    restart: unless-stopped
+    user: "0:0"
+    cpu_shares: 30
+    mem_limit: 2g
+    memswap_limit: 2g
+    stop_grace_period: 30s
+    expose:
+      - 3000
+    # libp2p TCP must be host-published (kad lookups dial it directly; Caddy
+    # cannot proxy it). Same host port the 1.0.x monolith used.
+    ports:
+      - "4003:4001"
+    volumes:
+      - ${DATA_ROOT:-/DATA}/AppData/metawatch/share-data:/data:rw
+      - ${DATA_ROOT:-/DATA}/AppData/metawatch/share-ipfs-state:/state:rw
+    environment:
+      META_SHARE_HULL_URL: "http://metawatch-share:3001"
+      # Beacon v2: only this bundle's hull may list this plugin.
+      BEACON_BINDS: "metawatch-share"
+      # ${APP_PUBLIC_IPV4}, NOT ${APP_PUBLIC_IP}: on an IPv6-primary PCS the
+      # latter is a v6 address, and /ip4/<v6>/… is not a parseable multiaddr.
+      PUBLIC_ADDR: "/ip4/${APP_PUBLIC_IPV4}/tcp/4003"
+      # Public IPFS DHT bootstraps by explicit /dns4/…/tcp/4001, plus
+      # mars.i.ipfs.io in case the foundation four refuse this IP.
+      KAD_BOOTSTRAP_PEERS: "/dns4/sg1.bootstrap.libp2p.io/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt,/dns4/sv15.bootstrap.libp2p.io/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN,/dns4/ny5.bootstrap.libp2p.io/tcp/4001/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa,/dns4/am6.bootstrap.libp2p.io/tcp/4001/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb,/dns4/mars.i.ipfs.io/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
+      TZ: "$TZ"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
     networks:
       - metawatch
       - pcs
@@ -506,6 +533,9 @@ x-compose-app:
       user: $PUID
       group: $PGID
     - path: /DATA/AppData/metawatch/share-data
+      user: $PUID
+      group: $PGID
+    - path: /DATA/AppData/metawatch/share-ipfs-state
       user: $PUID
       group: $PGID
     - path: /DATA/AppData/metawatch/data

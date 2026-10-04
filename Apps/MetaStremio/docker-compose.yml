@@ -19,8 +19,8 @@ services:
       # Shared infrastructure state (leader election, Redis dump, service discovery)
       # Owned by MetaCore; mounted rw here for service registration + leader reads.
       # No /meta-core mount: this service locates meta-core over UDP
-      # (meta-discovery v1) instead of reading kv-leader.info off a shared
-      # volume. See docs/project-architecture/service-discovery.md.
+      # (beacon v2) instead of reading kv-leader.info off a shared
+      # volume. See docs/project-architecture/beacon-v2.md.
 
       # Transcoding cache
       - ${DATA_ROOT:-/DATA}/AppData/metastremio/cache:/data/cache

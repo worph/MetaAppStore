@@ -100,8 +100,8 @@ services:
       - "4006:4001"
     volumes:
       # No /meta-core mount: this service locates meta-core over UDP
-      # (meta-discovery v1) instead of reading kv-leader.info off a shared
-      # volume. See docs/project-architecture/service-discovery.md.
+      # (beacon v2) instead of reading kv-leader.info off a shared
+      # volume. See docs/project-architecture/beacon-v2.md.
       - ${DATA_ROOT:-/DATA}/AppData/metaread/search-data:/data:rw
     environment:
       P2P_LISTEN: "/ip4/0.0.0.0/tcp/4001"
@@ -136,9 +136,9 @@ services:
       - pcs
 
   # ---------------------------------------------------------------------------
-  # metaread-share — PURE CONTENT TRANSPORT. Fetches and serves bytes by CID
-  # over bitswap + a BitTorrent tier, and seeds whatever it fetches. Public
-  # libp2p on host port 4005.
+  # metaread-share (+ metaread-share-ipfs) — CONTENT TRANSPORT: the meta-share
+  # hull with one ipfs plugin. Fetches and serves bytes by CID over bitswap, and
+  # seeds whatever it fetches. Public libp2p on host port 4005.
   #
   # ⚠ It must be reachable by whatever holds the pages. A comic chapter from the
   # aggregator tier is a list of per-page URL locators redeemed HERE, so a
@@ -146,36 +146,43 @@ services:
   # that lists correctly and will not open.
   # ---------------------------------------------------------------------------
   metaread-share:
-    image: ghcr.io/worph/meta-share:1.0.36
+    # The meta-share HULL (2.x): HTTP API, material index, seed manifest,
+    # eviction, playback focus, meta-core ingest. Every byte-moving protocol is
+    # a transport plugin; this bundle ships ONE — metaread-share-ipfs below — which
+    # makes it the read cache: page bytes over bitswap + re-seed (a chapter is tens of MB, never a film). Torrent and local NZB tiers are not bundled
+    # (META_SHARE_PLUGIN_{TORRENT,NZB}_URL=off keeps the hull from seeding the
+    # MetaShare app's `metashare-<tier>` hostnames, which on a shared `pcs`
+    # would be ANOTHER hull's plugins writing to another /data).
+    #  - 3000  HTTP API   - 3001  plugin callback API (internal only)
+    image: ghcr.io/worph/meta-share:2.2.1
     container_name: metaread-share
-    # Smaller than MetaWatch's 3 GB on purpose: a chapter is tens of megabytes
-    # where a film is gigabytes, and this peer never holds a whole video.
-    mem_limit: 1500m
-    memswap_limit: 1500m
+    # The swarm and blockstore moved to the ipfs plugin, so the hull needs far
+    # less than the monolith did.
+    mem_limit: 1g
+    memswap_limit: 1g
     hostname: metaread-share
     restart: unless-stopped
     user: "0:0"
     cpu_shares: 30
+    # material.redb writes its allocator state on Drop; give SIGTERM room.
+    stop_grace_period: 30s
     expose:
       - 3000
-    ports:
-      - "4005:4001"
+      - 3001
     volumes:
-      # No /meta-core mount: this service locates meta-core over UDP
-      # (meta-discovery v1) instead of reading kv-leader.info off a shared
-      # volume. See docs/project-architecture/service-discovery.md.
+      # settings.json — network endpoints and the plugin list.
       - ${DATA_ROOT:-/DATA}/AppData/metaread/metashare-config:/config:rw
-      # The read cache: redb blockstore, seed manifest, sparse files. Without
-      # this mount every recreate re-downloads from a cold swarm and the peer
-      # seeds nothing back.
+      # The shared data volume: cache/, tmp/, seeds.json, material.redb are the
+      # hull's; ipfs/blocks.redb is the ipfs plugin's corner of the SAME folder
+      # (layout unchanged from 1.0.x, so an existing cache carries over).
       - ${DATA_ROOT:-/DATA}/AppData/metaread/share-data:/data:rw
     environment:
-      P2P_LISTEN: "/ip4/0.0.0.0/tcp/4001"
-      PUBLIC_ADDR: "/ip4/${APP_PUBLIC_IPV4}/tcp/4005"
-      KAD_BOOTSTRAP_PEERS: "/dns4/sg1.bootstrap.libp2p.io/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt,/dns4/sv15.bootstrap.libp2p.io/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN,/dns4/ny5.bootstrap.libp2p.io/tcp/4001/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa,/dns4/am6.bootstrap.libp2p.io/tcp/4001/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb,/dns4/mars.i.ipfs.io/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
       META_CORE_URL: "http://metaread-core:9000"
       BASE_URL: "http://metaread-share:3000"
       INTERNAL_BASE_URL: "http://metaread-share:3000"
+      META_SHARE_PLUGIN_IPFS_URL: "http://metaread-share-ipfs:3000"
+      META_SHARE_PLUGIN_TORRENT_URL: "off"
+      META_SHARE_PLUGIN_NZB_URL: "off"
       TZ: "$TZ"
     depends_on:
       metaread-core:
@@ -185,7 +192,51 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-      start_period: 5s
+      start_period: 10s
+    networks:
+      - metaread
+      - pcs
+
+  metaread-share-ipfs:
+    # The hull's only transport plugin: the libp2p swarm (kad-DHT, identify,
+    # mDNS, bitswap), the blockstore, gateway discovery and the peer directory
+    # the hull uses to forward Usenet cids. Waits up to 60 s for the hull's
+    # internal /health before opening blocks.redb, so no depends_on.
+    image: ghcr.io/worph/meta-transport-ipfs:1.2.0
+    container_name: metaread-share-ipfs
+    hostname: metaread-share-ipfs
+    restart: unless-stopped
+    user: "0:0"
+    cpu_shares: 30
+    mem_limit: 1500m
+    memswap_limit: 1500m
+    stop_grace_period: 30s
+    expose:
+      - 3000
+    # libp2p TCP must be host-published (kad lookups dial it directly; Caddy
+    # cannot proxy it). Same host port the 1.0.x monolith used.
+    ports:
+      - "4005:4001"
+    volumes:
+      - ${DATA_ROOT:-/DATA}/AppData/metaread/share-data:/data:rw
+      - ${DATA_ROOT:-/DATA}/AppData/metaread/share-ipfs-state:/state:rw
+    environment:
+      META_SHARE_HULL_URL: "http://metaread-share:3001"
+      # Beacon v2: only this bundle's hull may list this plugin.
+      BEACON_BINDS: "metaread-share"
+      # ${APP_PUBLIC_IPV4}, NOT ${APP_PUBLIC_IP}: on an IPv6-primary PCS the
+      # latter is a v6 address, and /ip4/<v6>/… is not a parseable multiaddr.
+      PUBLIC_ADDR: "/ip4/${APP_PUBLIC_IPV4}/tcp/4005"
+      # Public IPFS DHT bootstraps by explicit /dns4/…/tcp/4001, plus
+      # mars.i.ipfs.io in case the foundation four refuse this IP.
+      KAD_BOOTSTRAP_PEERS: "/dns4/sg1.bootstrap.libp2p.io/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt,/dns4/sv15.bootstrap.libp2p.io/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN,/dns4/ny5.bootstrap.libp2p.io/tcp/4001/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa,/dns4/am6.bootstrap.libp2p.io/tcp/4001/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb,/dns4/mars.i.ipfs.io/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
+      TZ: "$TZ"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
     networks:
       - metaread
       - pcs
@@ -474,6 +525,9 @@ x-compose-app:
       user: $PUID
       group: $PGID
     - path: /DATA/AppData/metaread/share-data
+      user: $PUID
+      group: $PGID
+    - path: /DATA/AppData/metaread/share-ipfs-state
       user: $PUID
       group: $PGID
     - path: /DATA/AppData/metaread/search-data

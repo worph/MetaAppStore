@@ -66,72 +66,50 @@ services:
       - pcs
 
   # ===========================================================================
-  # metagateway-share — meta-share INGESTER role (META_CORE_URL set). Polls this
-  # gateway's meta-core, announces resolved records on Kamilata + rebuilds its
-  # Bloom filter, and seeds blobs over IPFS/bitswap so federated MetaWatch
-  # queries reach the gateway's records. Public libp2p on host port 4005
-  # (the gateway-app owns 4002 for discovery).
+  # metagateway-share (+ metagateway-share-ipfs) — meta-share INGESTER role
+  # (META_CORE_URL set): the hull with one ipfs plugin. Polls this gateway's
+  # meta-core and seeds blobs over IPFS/bitswap so remote clients can fetch the
+  # gateway's records. No local NZB tier is bundled. Public libp2p on host port
+  # 4005 (the gateway-app owns 4002 for discovery).
   # ===========================================================================
   metagateway-share:
-    # 1.0.8 = rsa-enabled libp2p (joins the public IPFS DHT — see metagateway-app)
-    # + P2P_ANNOUNCE support so remote peers can dial this bitswap seeder.
-    image: ghcr.io/worph/meta-share:1.0.36
+    # The meta-share HULL (2.x): HTTP API, material index, seed manifest,
+    # eviction, playback focus, meta-core ingest. Every byte-moving protocol is
+    # a transport plugin; this bundle ships ONE — metagateway-share-ipfs below — which
+    # makes it the INGESTER: seeds this gateway's resolved blobs over IPFS/bitswap so remote clients can fetch them. Torrent and local NZB tiers are not bundled
+    # (META_SHARE_PLUGIN_{TORRENT,NZB}_URL=off keeps the hull from seeding the
+    # MetaShare app's `metashare-<tier>` hostnames, which on a shared `pcs`
+    # would be ANOTHER hull's plugins writing to another /data).
+    #  - 3000  HTTP API   - 3001  plugin callback API (internal only)
+    image: ghcr.io/worph/meta-share:2.2.1
     container_name: metagateway-share
-    # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
-    # instead of swap. Mirrors the dev sub-stack limits.
-    mem_limit: 3g
-    memswap_limit: 3g
+    # The swarm and blockstore moved to the ipfs plugin, so the hull needs far
+    # less than the monolith did.
+    mem_limit: 1g
+    memswap_limit: 1g
     hostname: metagateway-share
     restart: unless-stopped
     user: "0:0"
     cpu_shares: 30
+    # material.redb writes its allocator state on Drop; give SIGTERM room.
+    stop_grace_period: 30s
     expose:
       - 3000
-    # Own public libp2p port (4005). The gateway-app owns 4002 (discovery);
-    # this ingester's bitswap tier serves the gateway's seeded bytes to remote
-    # peers over the public DHT, so it needs its own dialable host port.
-    ports:
-      - "4005:4001"
+      - 3001
     volumes:
-      # No /meta-core mount: this service locates meta-core over UDP
-      # (meta-discovery v1) instead of reading kv-leader.info off a shared
-      # volume. See docs/project-architecture/service-discovery.md.
-      # Operator settings (settings.json — NNTP creds + indexer API keys). This
-      # is the CREDENTIALED peer of the pair: it materialises NZB postings for
-      # credential-less clients. Losing settings.json on an update means the
-      # gateway silently stops serving nzb-release bytes until re-entered.
+      # settings.json — network endpoints and the plugin list.
       - ${DATA_ROOT:-/DATA}/AppData/metagateway/share-config:/config:rw
-      # Blockstore + seed manifest + NZB cache (META_SHARE_DATA=/data/meta-share).
-      # Without it the gateway's seeded corpus is wiped on every recreate.
+      # The shared data volume: cache/, tmp/, seeds.json, material.redb are the
+      # hull's; ipfs/blocks.redb is the ipfs plugin's corner of the SAME folder
+      # (layout unchanged from 1.0.x, so an existing cache carries over).
       - ${DATA_ROOT:-/DATA}/AppData/metagateway/share-data:/data:rw
     environment:
-      P2P_LISTEN: "/ip4/0.0.0.0/tcp/4001"
-      # Advertise the routable address (published host port 4005) so kad
-      # provider records + identify carry a dialable multiaddr for remote
-      # bitswap fetches. Behind Docker NAT the swarm otherwise only sees
-      # container-internal addresses.
-      # ${APP_PUBLIC_IPV4}, NOT ${APP_PUBLIC_IP} — see the note on the
-      # gateway-app below: APP_PUBLIC_IP is the v6 address on an
-      # IPv6-primary PCS, and `/ip4/<v6>/tcp/...` fails to parse.
-      PUBLIC_ADDR: "/ip4/${APP_PUBLIC_IPV4}/tcp/4005"
-      # Public IPFS DHT bootstraps by explicit /dns4/.../tcp/4001 (the nested
-      # dnsaddr form resolves to wss-only in some container resolvers). rsa
-      # feature required to complete the noise handshake with these RSA-keyed
-      # (Qm...) bootstrap nodes.
-      # Includes mars.i.ipfs.io — the only surviving legacy *.i.ipfs.io
-      # bootstrapper (neptune/pluto/uranus/earth/saturn/venus are all NXDOMAIN).
-      # It is here for resilience: the four IPFS-Foundation bootstrappers can
-      # refuse an individual IP, and when they do a peer cannot join the DHT AT
-      # ALL — no provider record, no discovery, no gateway fan-out. Observed on
-      # watch.nsl.sh 2026-09-01: 2 connections with the four alone, 126 once a
-      # reachable fifth was added. Costs nothing when the four work.
-      KAD_BOOTSTRAP_PEERS: "/dns4/sg1.bootstrap.libp2p.io/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt,/dns4/sv15.bootstrap.libp2p.io/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN,/dns4/ny5.bootstrap.libp2p.io/tcp/4001/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa,/dns4/am6.bootstrap.libp2p.io/tcp/4001/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb,/dns4/mars.i.ipfs.io/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
       META_CORE_URL: "http://metagateway-core:9000"
       BASE_URL: "http://metagateway-share:3000"
-      # Renamed at the 1.0.26 bump (2026-08-26), as the old note here said to do:
-      # META_SHARE_PEER_API_URL was the pre-1.0.8 spelling and now only logs a
-      # deprecation warning. Do NOT set both.
       INTERNAL_BASE_URL: "http://metagateway-share:3000"
+      META_SHARE_PLUGIN_IPFS_URL: "http://metagateway-share-ipfs:3000"
+      META_SHARE_PLUGIN_TORRENT_URL: "off"
+      META_SHARE_PLUGIN_NZB_URL: "off"
       TZ: "$TZ"
     depends_on:
       metagateway-core:
@@ -141,7 +119,51 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-      start_period: 5s
+      start_period: 10s
+    networks:
+      - metagateway
+      - pcs
+
+  metagateway-share-ipfs:
+    # The hull's only transport plugin: the libp2p swarm (kad-DHT, identify,
+    # mDNS, bitswap), the blockstore, gateway discovery and the peer directory
+    # the hull uses to forward Usenet cids. Waits up to 60 s for the hull's
+    # internal /health before opening blocks.redb, so no depends_on.
+    image: ghcr.io/worph/meta-transport-ipfs:1.2.0
+    container_name: metagateway-share-ipfs
+    hostname: metagateway-share-ipfs
+    restart: unless-stopped
+    user: "0:0"
+    cpu_shares: 30
+    mem_limit: 2g
+    memswap_limit: 2g
+    stop_grace_period: 30s
+    expose:
+      - 3000
+    # libp2p TCP must be host-published (kad lookups dial it directly; Caddy
+    # cannot proxy it). Same host port the 1.0.x monolith used.
+    ports:
+      - "4005:4001"
+    volumes:
+      - ${DATA_ROOT:-/DATA}/AppData/metagateway/share-data:/data:rw
+      - ${DATA_ROOT:-/DATA}/AppData/metagateway/share-ipfs-state:/state:rw
+    environment:
+      META_SHARE_HULL_URL: "http://metagateway-share:3001"
+      # Beacon v2: only this bundle's hull may list this plugin.
+      BEACON_BINDS: "metagateway-share"
+      # ${APP_PUBLIC_IPV4}, NOT ${APP_PUBLIC_IP}: on an IPv6-primary PCS the
+      # latter is a v6 address, and /ip4/<v6>/… is not a parseable multiaddr.
+      PUBLIC_ADDR: "/ip4/${APP_PUBLIC_IPV4}/tcp/4005"
+      # Public IPFS DHT bootstraps by explicit /dns4/…/tcp/4001, plus
+      # mars.i.ipfs.io in case the foundation four refuse this IP.
+      KAD_BOOTSTRAP_PEERS: "/dns4/sg1.bootstrap.libp2p.io/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt,/dns4/sv15.bootstrap.libp2p.io/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN,/dns4/ny5.bootstrap.libp2p.io/tcp/4001/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa,/dns4/am6.bootstrap.libp2p.io/tcp/4001/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb,/dns4/mars.i.ipfs.io/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
+      TZ: "$TZ"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
     networks:
       - metagateway
       - pcs
@@ -159,7 +181,7 @@ services:
     # P2P listen/announce so it's discoverable + dialable off-host + the
     # 2026-07 discovery/filters fixes that make the meta-search fan-out
     # actually route `fileType:video` queries here.
-    image: ghcr.io/worph/meta-gateway:1.0.39
+    image: ghcr.io/worph/meta-gateway:1.0.40
     container_name: metagateway-app
     # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
     # instead of swap. Mirrors the dev sub-stack limits.
@@ -594,6 +616,9 @@ x-compose-app:
       user: $PUID
       group: $PGID
     - path: /DATA/AppData/metagateway/share-data
+      user: $PUID
+      group: $PGID
+    - path: /DATA/AppData/metagateway/share-ipfs-state
       user: $PUID
       group: $PGID
   # Same string as the caddy_0 label, so the tile link and the route agree.
