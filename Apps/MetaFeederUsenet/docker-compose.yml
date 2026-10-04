@@ -5,9 +5,10 @@ name: metafeederusenet
 #
 # ⚠ NNTmux is a SEPARATE app (worph/AppStore) — install it first. This feeder
 # reaches it on the shared `pcs` network at `http://nntmux` over its Newznab
-# API (`/api/v1/api` + `/getnzb`), with the API key of NNTmux's `metamesh`
-# user — the same contract MetaFeeder · Prowlarr uses with Prowlarr. It never
-# touches NNTmux's database or storage.
+# API (`/api/v1/api` + `/getnzb`), with the key of an NNTmux API user made for
+# it (`docker exec nntmux-scanner nntmux-setup api-user metamesh`) — the same
+# contract MetaFeeder · Prowlarr uses with Prowlarr. It never touches NNTmux's
+# database or storage.
 #
 # Unlike MetaFeeder · Prowlarr (which proxies EXTERNAL indexers and mints an
 # `nzb-release` (0x1005) cid embedding that indexer's host), every release
@@ -207,10 +208,10 @@ x-casaos:
         **Install order:** **NNTmux** (worph/AppStore) and **MetaGateway** first.
 
         **After installing:**
-        1. Read NNTmux's `metamesh` API key (the NNTmux app provisions this user,
-           with raised daily API/download caps):
+        1. Give the feeder its own NNTmux API user (raised daily API/download
+           limits) and copy the key it prints:
            ```
-           docker exec nntmux php artisan tinker --execute="echo App\Models\User::where('username','metamesh')->value('api_token');"
+           docker exec nntmux-scanner nntmux-setup api-user metamesh
            ```
         2. In **MetaGateway**, make sure this feeder is listed in its feeders
            config (`http://metafeederusenet-feeder:8080`), then open its config
@@ -241,3 +242,25 @@ x-compose-app:
       user: $PUID
       group: $PGID
   # No web UI: Maison files it under Services. Configured from MetaGateway.
+  # Shown from the tile menu.
+  tips:
+    en_us: |
+      **Pair it with your NNTmux** (worph/AppStore — set up its provider and
+      groups first, see NNTmux's own tips):
+      1. Create the feeder's NNTmux API user and copy the key it prints:
+         `docker exec nntmux-scanner nntmux-setup api-user metamesh`
+      2. **MetaGateway** dashboard → usenet feeder → *configure* → paste it into
+         **nntmux API key** (URL `http://nntmux`), Save. The feeder restarts itself.
+      3. Optional, same panel: **indexer keys** (to redeem releases found through
+         Prowlarr's Newznab indexers) and a TMDB token.
+
+      Check: `docker exec metafeederusenet-feeder curl -s localhost:8080/health`
+      (`ok` once NNTmux answers and the key is accepted).
+
+      **Searches must be typed** (`fileType:video`, `contentKind:episode`…) to
+      reach this feeder. Each release's .nzb is fetched from NNTmux once, then
+      cached in `feeder-state/gateway/usenet/nntmux-nzb/`.
+    fr_fr: |
+      **Associez-le à NNTmux :** `docker exec nntmux-scanner nntmux-setup api-user metamesh`,
+      puis collez la clé affichée dans MetaGateway → feeder usenet → *configure*
+      (**nntmux API key**).
