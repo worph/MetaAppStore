@@ -114,6 +114,9 @@ services:
     expose:
       - 8080
     environment:
+      # Beacon v2: this sidecar serves metafeederprowlarr-feeder only; another consumer
+      # (meta-sort's Scan card) sees it as bound elsewhere, never addable.
+      BEACON_BINDS: "metafeederprowlarr-feeder"
       EMIT_TITLE_TAGS: "true"
     networks:
       - metafeederprowlarr
@@ -131,6 +134,9 @@ services:
     expose:
       - 8080
     environment:
+      # Beacon v2: this sidecar serves metafeederprowlarr-feeder only; another consumer
+      # (meta-sort's Scan card) sees it as bound elsewhere, never addable.
+      BEACON_BINDS: "metafeederprowlarr-feeder"
       # Posters land in the gateway core (over pcs) so the ingester seeds them.
       # LOAD-BEARING at metamesh-plugin-tmdb:1.0.0 — do NOT remove.
       # Newer source derives WebDAV from the metaCoreUrl passed on each /process

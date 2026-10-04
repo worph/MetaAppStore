@@ -104,6 +104,9 @@ services:
     expose:
       - 8080
     environment:
+      # Beacon v2: this sidecar serves metafeederusenet-feeder only; another consumer
+      # (meta-sort's Scan card) sees it as bound elsewhere, never addable.
+      BEACON_BINDS: "metafeederusenet-feeder"
       EMIT_TITLE_TAGS: "true"
     networks:
       - metafeederusenet
@@ -119,6 +122,9 @@ services:
     expose:
       - 8080
     environment:
+      # Beacon v2: this sidecar serves metafeederusenet-feeder only; another consumer
+      # (meta-sort's Scan card) sees it as bound elsewhere, never addable.
+      BEACON_BINDS: "metafeederusenet-feeder"
       # Posters land in the shared meta-core (over pcs) so the ingester seeds
       # them. LOAD-BEARING at metamesh-plugin-tmdb:1.0.0 — do NOT remove (see
       # the sibling feeder apps' identical note: the published image needs

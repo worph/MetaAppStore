@@ -131,6 +131,9 @@ services:
     expose:
       - 8080
     environment:
+      # Beacon v2: this sidecar serves metafeedertribler-feeder only; another consumer
+      # (meta-sort's Scan card) sees it as bound elsewhere, never addable.
+      BEACON_BINDS: "metafeedertribler-feeder"
       PORT: "8080"
       EMIT_TITLE_TAGS: "true"
     networks:
@@ -145,6 +148,9 @@ services:
     expose:
       - 8080
     environment:
+      # Beacon v2: this sidecar serves metafeedertribler-feeder only; another consumer
+      # (meta-sort's Scan card) sees it as bound elsewhere, never addable.
+      BEACON_BINDS: "metafeedertribler-feeder"
       PORT: "8080"
       CACHE_DIR: "/cache"
       # Posters land in the shared meta-core (over pcs) so the ingester seeds them.
