@@ -38,48 +38,8 @@ services:
       retries: 10
       start_period: 5s
     networks:
-      - metafeedergutenberg
       - pcs
-
-  # ---------------------------------------------------------------------------
-  # AppShield gate — the feeder's config page behind Yundera OIDC SSO.
-  # container_name == subdomain prefix (the auth-registrar derives the client_id
-  # from it). The gateway still reaches the feeder directly on `pcs`; index → /config.
-  # ---------------------------------------------------------------------------
-  metafeedergutenberg:
-    image: ghcr.io/yundera/appshield:2.0.9
-    cpu_shares: 80
-    container_name: metafeedergutenberg
-    hostname: metafeedergutenberg
-    restart: unless-stopped
-    user: "0:0"
-    expose:
-      - 80
-    environment:
-      OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
-      REDIRECT_HOST_SUFFIXES: "${APP_DOMAIN},${APP_PUBLIC_IP_DASH}.nip.io,${APP_PUBLIC_IP_DASH}.sslip.io"
-      BACKEND_HOST: "metafeedergutenberg-feeder"
-      BACKEND_PORT: "8080"
-      LISTEN_PORT: "80"
-    labels:
-      caddy_0: metafeedergutenberg-${APP_DOMAIN}
-      caddy_0.import: gateway_tls
-      caddy_0.reverse_proxy: "{{upstreams 80}}"
-      caddy_1: metafeedergutenberg-${APP_PUBLIC_IP_DASH}.nip.io
-      caddy_1.import: gateway_tls
-      caddy_1.reverse_proxy: "{{upstreams 80}}"
-      caddy_2: metafeedergutenberg-${APP_PUBLIC_IP_DASH}.sslip.io
-      caddy_2.reverse_proxy: "{{upstreams 80}}"
-    depends_on:
-      - metafeedergutenberg-feeder
-    networks:
-      - metafeedergutenberg
-      - pcs
-
 networks:
-  metafeedergutenberg:
-    name: metafeedergutenberg
-    driver: bridge
   pcs:
     name: ${APP_NET:-pcs}
     external: true
@@ -91,9 +51,6 @@ x-casaos:
   author: Worph Team
   category: Media
   developer: Aptero Team
-  main: metafeedergutenberg
-  webui_port: 80
-  index: /config
 
   description:
     en_us: |
@@ -136,7 +93,7 @@ x-casaos:
         is listed in its feeders config (`http://metafeedergutenberg-feeder:8080`) so
         it gets discovered (or add it from the gateway dashboard). No other setup.
 
-        **Authentication:** the config UI is protected by Yundera's Authelia (OIDC).
+        **No web UI of its own:** configure it from the **MetaGateway** dashboard → this feeder → *configure* (the gateway proxies this feeder's config page, behind the gateway's login).
 
 # Maison (Yundera dashboard) configuration. Read in preference to x-casaos.
 # schema_version 2 is required for `folders`: an older Maison refuses the app
@@ -150,6 +107,3 @@ x-compose-app:
     - path: /DATA/AppData/metafeedergutenberg/state
       user: $PUID
       group: $PGID
-  # Same string as the caddy_0 label, so the tile link and the route agree.
-  webui-host: metafeedergutenberg-${domain}
-  webui-path: "/config"

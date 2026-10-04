@@ -67,8 +67,8 @@ services:
   # metafeedertribler-feeder — the tribler feeder (dedicated meta-feeder-tribler
   # image). A thin client of tribler-instance; self-publishes resolved records to
   # the shared meta-core + drives the bundled enrichment plugins. The gateway
-  # reaches it directly on `pcs`; the human configures it through the AppShield
-  # gate below.
+  # reaches it directly on `pcs`; the human configures it
+  # from the MetaGateway dashboard (configure panel).
   # ---------------------------------------------------------------------------
   metafeedertribler-feeder:
     image: ghcr.io/worph/meta-feeder-tribler:1.0.6
@@ -83,7 +83,7 @@ services:
       # INFRA-ONLY env (the "config: no env if in webui" rule). Operator config —
       # Tribler sidecar URL, api key, TMDB token / language, meta-core URL — is
       # read from the persisted config.json (pre-seeded by pre-install-cmd, then
-      # editable in the config UI behind the AppShield gate). These env vars are
+      # editable in the config page, opened from the MetaGateway dashboard (configure panel)). These env vars are
       # wiring only: enrichment sidecars, the enrich callback, the peer id
       # (analytics group by it), and the state dir.
       RUST_LOG: "info,meta_feeder=info,tribler_feeder=info"
@@ -154,43 +154,6 @@ services:
     networks:
       - metafeedertribler
       - pcs
-
-  # ---------------------------------------------------------------------------
-  # AppShield gate — the feeder's config UI (Tribler sidecar URL / api key, TMDB
-  # token) behind Yundera OIDC SSO. container_name == subdomain prefix. The
-  # gateway still reaches the feeder directly on `pcs` (this gate is for the
-  # human only); index → /config.
-  # ---------------------------------------------------------------------------
-  metafeedertribler:
-    image: ghcr.io/yundera/appshield:2.0.9
-    cpu_shares: 80
-    container_name: metafeedertribler
-    hostname: metafeedertribler
-    restart: unless-stopped
-    user: "0:0"
-    expose:
-      - 80
-    environment:
-      OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
-      REDIRECT_HOST_SUFFIXES: "${APP_DOMAIN},${APP_PUBLIC_IP_DASH}.nip.io,${APP_PUBLIC_IP_DASH}.sslip.io"
-      BACKEND_HOST: "metafeedertribler-feeder"
-      BACKEND_PORT: "8080"
-      LISTEN_PORT: "80"
-    labels:
-      caddy_0: metafeedertribler-${APP_DOMAIN}
-      caddy_0.import: gateway_tls
-      caddy_0.reverse_proxy: "{{upstreams 80}}"
-      caddy_1: metafeedertribler-${APP_PUBLIC_IP_DASH}.nip.io
-      caddy_1.import: gateway_tls
-      caddy_1.reverse_proxy: "{{upstreams 80}}"
-      caddy_2: metafeedertribler-${APP_PUBLIC_IP_DASH}.sslip.io
-      caddy_2.reverse_proxy: "{{upstreams 80}}"
-    depends_on:
-      - metafeedertribler-feeder
-    networks:
-      - metafeedertribler
-      - pcs
-
 networks:
   metafeedertribler:
     name: metafeedertribler
@@ -206,9 +169,6 @@ x-casaos:
   author: Worph Team
   category: Media
   developer: Aptero Team
-  main: metafeedertribler
-  webui_port: 80
-  index: /config
 
   description:
     en_us: |
@@ -262,7 +222,7 @@ x-casaos:
 
         **After installing this app:**
         1. It works out of the box: the feeder is pre-wired to its bundled Tribler
-           core. Optionally open the config UI (the dashboard link) to set a TMDB
+           core. Optionally open its config panel (the **MetaGateway** dashboard → this feeder → *configure*) to set a TMDB
            v4 token for posters, then Save — the feeder reloads automatically.
         2. In **MetaGateway**, make sure this feeder is listed in its feeders
            config (`http://metafeedertribler-feeder:8080`) so it gets discovered
@@ -271,7 +231,7 @@ x-casaos:
         **Note:** the bundled Tribler core needs a few minutes to bootstrap onto
         the IPv8 network before search results appear.
 
-        **Authentication:** the config UI is protected by Yundera's Authelia (OIDC).
+        **No web UI of its own:** configure it from the **MetaGateway** dashboard → this feeder → *configure* (the gateway proxies this feeder's config page, behind the gateway's login).
 
   pre-install-cmd: |
     # Seed the bundled Tribler core config (api on 0.0.0.0:8085, key `changeme`).
@@ -309,6 +269,3 @@ x-compose-app:
     - path: /DATA/AppData/metafeedertribler/tribler-seed
       user: $PUID
       group: $PGID
-  # Same string as the caddy_0 label, so the tile link and the route agree.
-  webui-host: metafeedertribler-${domain}
-  webui-path: "/config"

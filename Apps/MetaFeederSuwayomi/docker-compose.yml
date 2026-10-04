@@ -55,7 +55,7 @@ services:
       RUST_LOG: "info,meta_feeder=info,suwayomi_feeder=info"
       META_FEEDER_STATE_DIR: "/data/meta-feeder"
       # INFRA-ONLY env, and only a FIRST-BOOT SEED: `base_url` is a field on
-      # this feeder's own config page (the dashboard link), and a value saved
+      # this feeder's own config page (the MetaGateway dashboard (configure panel)), and a value saved
       # there wins. `suwayomi` is the container the Suwayomi store app publishes
       # on `pcs` — change it only to point at a Suwayomi somewhere else, and see
       # the reachability warning in the header before you do.
@@ -78,48 +78,8 @@ services:
       retries: 10
       start_period: 5s
     networks:
-      - metafeedersuwayomi
       - pcs
-
-  # ---------------------------------------------------------------------------
-  # AppShield gate — the feeder's config page behind Yundera OIDC SSO.
-  # container_name == subdomain prefix (the auth-registrar derives the client_id
-  # from it). The gateway still reaches the feeder directly on `pcs`; index → /config.
-  # ---------------------------------------------------------------------------
-  metafeedersuwayomi:
-    image: ghcr.io/yundera/appshield:2.0.9
-    cpu_shares: 80
-    container_name: metafeedersuwayomi
-    hostname: metafeedersuwayomi
-    restart: unless-stopped
-    user: "0:0"
-    expose:
-      - 80
-    environment:
-      OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
-      REDIRECT_HOST_SUFFIXES: "${APP_DOMAIN},${APP_PUBLIC_IP_DASH}.nip.io,${APP_PUBLIC_IP_DASH}.sslip.io"
-      BACKEND_HOST: "metafeedersuwayomi-feeder"
-      BACKEND_PORT: "8080"
-      LISTEN_PORT: "80"
-    labels:
-      caddy_0: metafeedersuwayomi-${APP_DOMAIN}
-      caddy_0.import: gateway_tls
-      caddy_0.reverse_proxy: "{{upstreams 80}}"
-      caddy_1: metafeedersuwayomi-${APP_PUBLIC_IP_DASH}.nip.io
-      caddy_1.import: gateway_tls
-      caddy_1.reverse_proxy: "{{upstreams 80}}"
-      caddy_2: metafeedersuwayomi-${APP_PUBLIC_IP_DASH}.sslip.io
-      caddy_2.reverse_proxy: "{{upstreams 80}}"
-    depends_on:
-      - metafeedersuwayomi-feeder
-    networks:
-      - metafeedersuwayomi
-      - pcs
-
 networks:
-  metafeedersuwayomi:
-    name: metafeedersuwayomi
-    driver: bridge
   pcs:
     name: ${APP_NET:-pcs}
     external: true
@@ -131,9 +91,6 @@ x-casaos:
   author: Worph Team
   category: Media
   developer: Aptero Team
-  main: metafeedersuwayomi
-  webui_port: 80
-  index: /config
 
   description:
     en_us: |
@@ -210,8 +167,9 @@ x-casaos:
         4. Optionally install **MetaFeeder · AniList** so chapters from several sources
            converge on one work page.
 
-        This app's own dashboard link opens the **feeder's config page** (Suwayomi URL,
-        chapters per work, chapters pre-loaded) — not Suwayomi.
+        This app has no web UI of its own: the **feeder's config page** (Suwayomi URL,
+        chapters per work, chapters pre-loaded) opens from the **MetaGateway**
+        dashboard → this feeder → *configure*. Suwayomi's own UI is the Suwayomi app.
 
         **⚠ Querying Suwayomi writes to it.** Rows will appear in its library that you
         did not add by hand. That is inherent to how the aggregator works.
@@ -219,7 +177,7 @@ x-casaos:
         **Suwayomi's own login must stay off** — the reader fetches chapter pages from it
         unauthenticated, so enabling it gives a library that lists every chapter and can
         open none.
-        **Authentication:** the config UI is protected by Yundera's Authelia (OIDC).
+        **No web UI of its own:** configure it from the **MetaGateway** dashboard → this feeder → *configure* (the gateway proxies this feeder's config page, behind the gateway's login).
 
 # Maison (Yundera dashboard) configuration. Read in preference to x-casaos.
 # schema_version 2 is required for `folders`: an older Maison refuses the app
@@ -233,6 +191,3 @@ x-compose-app:
     - path: /DATA/AppData/metafeedersuwayomi/state
       user: $PUID
       group: $PGID
-  # Same string as the caddy_0 label, so the tile link and the route agree.
-  webui-host: metafeedersuwayomi-${domain}
-  webui-path: "/config"

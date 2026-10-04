@@ -48,48 +48,8 @@ services:
       retries: 10
       start_period: 5s
     networks:
-      - metafeederanilist
       - pcs
-
-  # ---------------------------------------------------------------------------
-  # AppShield gate — the feeder's config page behind Yundera OIDC SSO.
-  # container_name == subdomain prefix (the auth-registrar derives the client_id
-  # from it). The gateway still reaches the feeder directly on `pcs`; index → /config.
-  # ---------------------------------------------------------------------------
-  metafeederanilist:
-    image: ghcr.io/yundera/appshield:2.0.9
-    cpu_shares: 80
-    container_name: metafeederanilist
-    hostname: metafeederanilist
-    restart: unless-stopped
-    user: "0:0"
-    expose:
-      - 80
-    environment:
-      OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
-      REDIRECT_HOST_SUFFIXES: "${APP_DOMAIN},${APP_PUBLIC_IP_DASH}.nip.io,${APP_PUBLIC_IP_DASH}.sslip.io"
-      BACKEND_HOST: "metafeederanilist-feeder"
-      BACKEND_PORT: "8080"
-      LISTEN_PORT: "80"
-    labels:
-      caddy_0: metafeederanilist-${APP_DOMAIN}
-      caddy_0.import: gateway_tls
-      caddy_0.reverse_proxy: "{{upstreams 80}}"
-      caddy_1: metafeederanilist-${APP_PUBLIC_IP_DASH}.nip.io
-      caddy_1.import: gateway_tls
-      caddy_1.reverse_proxy: "{{upstreams 80}}"
-      caddy_2: metafeederanilist-${APP_PUBLIC_IP_DASH}.sslip.io
-      caddy_2.reverse_proxy: "{{upstreams 80}}"
-    depends_on:
-      - metafeederanilist-feeder
-    networks:
-      - metafeederanilist
-      - pcs
-
 networks:
-  metafeederanilist:
-    name: metafeederanilist
-    driver: bridge
   pcs:
     name: ${APP_NET:-pcs}
     external: true
@@ -101,9 +61,6 @@ x-casaos:
   author: Worph Team
   category: Media
   developer: Aptero Team
-  main: metafeederanilist
-  webui_port: 80
-  index: /config
 
   description:
     en_us: |
@@ -149,7 +106,7 @@ x-casaos:
         dashboard's *Add a feeder* box — name `anilist-feeder`, URL `http://metafeederanilist-feeder:8080`.
         The gateway restarts itself: feeder discovery is startup-only.
         No other setup. For chapters, also install **MetaFeeder · Suwayomi**.
-        **Authentication:** the config UI is protected by Yundera's Authelia (OIDC).
+        **No web UI of its own:** configure it from the **MetaGateway** dashboard → this feeder → *configure* (the gateway proxies this feeder's config page, behind the gateway's login).
 
 # Maison (Yundera dashboard) configuration. Read in preference to x-casaos.
 # schema_version 2 is required for `folders`: an older Maison refuses the app
@@ -163,6 +120,3 @@ x-compose-app:
     - path: /DATA/AppData/metafeederanilist/state
       user: $PUID
       group: $PGID
-  # Same string as the caddy_0 label, so the tile link and the route agree.
-  webui-host: metafeederanilist-${domain}
-  webui-path: "/config"

@@ -135,7 +135,5 @@ x-compose-app:
     - path: /DATA/AppData/metatransportipfs/state
       user: $PUID
       group: $PGID
-  # An extension of MetaShare: no tile of its own, nested under MetaShare's,
-  # and listed in the store under MetaShare's Extensions. Presentation only —
-  # lifecycle and backups stay per-app.
-  parent: metashare
+  # No webui-host and no x-casaos hostname/webui_port/port_map: Maison files it
+  # under Services (no click target). Its config opens from MetaShare → Plugins.
