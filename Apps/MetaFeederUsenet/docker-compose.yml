@@ -38,7 +38,7 @@ services:
   # the MetaGateway dashboard (configure panel).
   # ---------------------------------------------------------------------------
   metafeederusenet-feeder:
-    image: ghcr.io/worph/meta-feeder-usenet:1.1.1
+    image: ghcr.io/worph/meta-feeder-usenet:1.2.0
     cpu_shares: 30
     container_name: metafeederusenet-feeder
     # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM instead
@@ -52,15 +52,21 @@ services:
       - 8080
     environment:
       # INFRA-ONLY env (the "config: no env if in webui" rule). Operator
-      # config beyond the NNTmux URL seed below — TMDB token / language,
-      # meta-core URL — is read from the persisted config.json (this
-      # feeder's config page, opened from the MetaGateway dashboard (configure panel)). These env vars are
-      # wiring only: the enrichment sidecars, the enrich callback, the peer id.
+      # config — the NNTmux key, the source name, indexer keys — is read from
+      # the persisted config.json (this feeder's config page, opened from the
+      # MetaGateway dashboard's configure panel). These env vars are wiring
+      # only: the meta-core, the enrichment sidecars, the enrich callback, the
+      # peer id.
       RUST_LOG: "info,meta_feeder=info"
       # The peer id stamped into provenance.gateway_peer on every record this
       # feeder self-publishes — names the GATEWAY this feeder serves, not the
       # feeder itself (analytics group by it). Without it, falls back to HOSTNAME.
       META_GATEWAY_PEER_ID: "metagateway"
+      # The gateway's meta-core, where the show cards live. A show page's query
+      # (tmdbid:<id>, no title) is matched to NNTmux releases BY NAME against
+      # that card — no TMDB call — so the releases land on the episode page as
+      # a title match. Unset → show pages get no NNTmux sources.
+      META_CORE_URL: "http://metacore-app:9000"
       FILENAME_PARSER_URL: "http://metafeederusenet-filename-parser:8080"
       TMDB_PLUGIN_URL: "http://metafeederusenet-tmdb:8080"
       META_FEEDER_CALLBACK_URL: "http://metafeederusenet-feeder:8080/enrich/callback"
@@ -217,8 +223,13 @@ x-casaos:
            config (`http://metafeederusenet-feeder:8080`), then open its config
            panel (*configure*): paste the key into **nntmux API key** (the URL
            defaults to `http://nntmux`) and Save — the feeder restarts itself.
-        3. Optionally add **indexer keys** there too, to redeem releases found
-           through Prowlarr's Newznab indexers, and a TMDB token for posters.
+        3. Optionally, same panel: **Source name** (how its releases are
+           labelled in a source list, default `nntmux`) and **indexer keys**, to
+           redeem releases found through Prowlarr's Newznab indexers.
+
+        On a show page (meta-watch), NNTmux releases whose names match the show
+        appear among the episode's sources, marked as matched **by title**. The
+        show must already have a card on the mesh.
 
         **Searches must be typed** (`fileType:video`, `contentKind:episode`…) to
         reach this feeder — a plain search-box query never fans out to it.
@@ -251,8 +262,12 @@ x-compose-app:
          `docker exec nntmux-scanner nntmux-setup api-user metamesh`
       2. **MetaGateway** dashboard → usenet feeder → *configure* → paste it into
          **nntmux API key** (URL `http://nntmux`), Save. The feeder restarts itself.
-      3. Optional, same panel: **indexer keys** (to redeem releases found through
-         Prowlarr's Newznab indexers) and a TMDB token.
+      3. Optional, same panel: **Source name** (default `nntmux`) and **indexer
+         keys** (to redeem releases found through Prowlarr's Newznab indexers).
+
+      On a meta-watch show page, releases whose names match the show are listed
+      with the episode's sources, labelled with the source name and marked as
+      matched **by title**.
 
       Check: `docker exec metafeederusenet-feeder curl -s localhost:8080/health`
       (`ok` once NNTmux answers and the key is accepted).
