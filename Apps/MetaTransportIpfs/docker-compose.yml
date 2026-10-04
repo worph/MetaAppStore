@@ -1,0 +1,176 @@
+name: metatransportipfs
+
+# One of MetaShare's transport plugins (meta-transport-ipfs). MetaShare (the
+# hull) reaches it at http://metashare-ipfs:3000 over `pcs` — the default entry
+# in its plugin list — and probes it every 10 s, so installing or removing this
+# app takes effect with no other step. Manage it from MetaShare → Plugins.
+#
+# It shares MetaShare's data volume (same /data layout the monolith used: the
+# `tmp/` → `cache/` promote is one rename(2), and the hull reads plugin-written
+# files directly). Its own settings live in its state dir (config.json), edited
+# through MetaShare's dashboard.
+
+services:
+  metashare-ipfs:
+    image: ghcr.io/worph/meta-transport-ipfs:1.1.0
+    container_name: metashare-ipfs
+    hostname: metashare-ipfs
+    restart: unless-stopped
+    cpu_shares: 20
+    # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM instead of swap.
+    mem_limit: 2g
+    memswap_limit: 2g
+    # Clean redb / session shutdown on SIGTERM before docker escalates.
+    stop_grace_period: 30s
+    # Root, like MetaShare: the shared data volume is root-owned.
+    user: 0:0
+    expose:
+      - 3000   # transport contract (internal, reached by MetaShare only)
+    # libp2p TCP must be host-published: other peers' kad-DHT lookups dial
+    # the public multiaddr directly, and Caddy cannot proxy it (not HTTP).
+    ports:
+      - "4001:4001"
+    volumes:
+      - ${DATA_ROOT:-/DATA}/AppData/metashare/data:/data:rw
+      - ${DATA_ROOT:-/DATA}/AppData/metatransportipfs/state:/state:rw
+    environment:
+      - META_SHARE_HULL_URL=http://metashare-app:3001
+      # Advertise the routable address so provider records + identify carry a
+      # dialable multiaddr. ${APP_PUBLIC_IPV4}, NOT ${APP_PUBLIC_IP}: on an
+      # IPv6-primary PCS the latter holds a v6 address, and /ip4/<v6>/… is not a
+      # parseable multiaddr (the plugin refuses to start rather than announce a lie).
+      - PUBLIC_ADDR=/ip4/${APP_PUBLIC_IPV4}/tcp/4001
+      # Public IPFS DHT bootstraps by explicit /dns4/.../tcp/4001 (the nested
+      # dnsaddr default resolves to wss-only in some container resolvers), plus
+      # mars.i.ipfs.io as a fifth in case the foundation four refuse this IP.
+      # Editable later from MetaShare → Plugins → ipfs → configure.
+      - KAD_BOOTSTRAP_PEERS=/dns4/sg1.bootstrap.libp2p.io/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt,/dns4/sv15.bootstrap.libp2p.io/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN,/dns4/ny5.bootstrap.libp2p.io/tcp/4001/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa,/dns4/am6.bootstrap.libp2p.io/tcp/4001/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb,/dns4/mars.i.ipfs.io/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ
+      - TZ=$TZ
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+    networks:
+      - metatransportipfs
+      - pcs
+
+  # OIDC perimeter in front of the plugin's own config page (the tile link).
+  # MetaShare's dashboard embeds the same page through its own proxy.
+  metatransportipfs:
+    image: ghcr.io/yundera/appshield:2.0.9
+    cpu_shares: 80
+    container_name: metatransportipfs
+    hostname: metatransportipfs
+    restart: unless-stopped
+    user: "0:0"
+    expose:
+      - 80
+    environment:
+      OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
+      REDIRECT_HOST_SUFFIXES: "${APP_DOMAIN},${APP_PUBLIC_IP_DASH}.nip.io,${APP_PUBLIC_IP_DASH}.sslip.io"
+      BACKEND_HOST: "metashare-ipfs"
+      BACKEND_PORT: "3000"
+      LISTEN_PORT: "80"
+    labels:
+      caddy_0: metatransportipfs-${APP_DOMAIN}
+      caddy_0.import: gateway_tls
+      caddy_0.reverse_proxy: "{{upstreams 80}}"
+      caddy_1: metatransportipfs-${APP_PUBLIC_IP_DASH}.nip.io
+      caddy_1.import: gateway_tls
+      caddy_1.reverse_proxy: "{{upstreams 80}}"
+      caddy_2: metatransportipfs-${APP_PUBLIC_IP_DASH}.sslip.io
+      caddy_2.reverse_proxy: "{{upstreams 80}}"
+    depends_on:
+      - metashare-ipfs
+    networks:
+      - metatransportipfs
+      - pcs
+
+networks:
+  metatransportipfs:
+    name: metatransportipfs
+    driver: bridge
+  pcs:
+    name: ${APP_NET:-pcs}
+    external: true
+
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  author: Worph Team
+  category: Media
+  tags: ["media", "needs-public-ip"]
+  developer: Aptero Team
+  main: metatransportipfs
+  webui_port: 80
+  index: /config
+
+  description:
+    en_us: |
+      **IPFS transport for MetaShare — the mesh itself.**
+
+      Runs MetaShare's libp2p node: peer discovery (public IPFS DHT, mDNS on the
+      LAN), bitswap block exchange, and seeding of your library and of what you
+      fetched, without a second copy on disk. It is also how MetaShare finds the
+      gateways on the mesh.
+
+      **One of MetaShare's transport plugins** — without it MetaShare can still
+      use BitTorrent and Usenet, but has no swarm. Configure it from
+      **MetaShare → Plugins → ipfs → configure** (cohort namespace, bootstrap
+      peers, DHT announce).
+
+      **Requires:** **MetaShare** (it shares MetaShare's storage).
+
+      **Port 4001 must be reachable from the internet** so other peers can dial
+      you. Behind CGNAT it still works, but peers cannot reach you.
+
+    fr_fr: |
+      **Transport IPFS pour MetaShare — le mesh lui-même.**
+
+      Fait tourner le nœud libp2p de MetaShare : découverte des pairs (DHT IPFS
+      public, mDNS sur le LAN), échange de blocs bitswap et partage de votre
+      bibliothèque sans seconde copie. C'est aussi par lui que MetaShare trouve les
+      passerelles du mesh.
+
+      **Un des plugins de transport de MetaShare.** Réglages dans
+      **MetaShare → Plugins → ipfs → configure**.
+
+      **Nécessite :** **MetaShare**. Le **port 4001** doit être joignable depuis
+      Internet.
+
+  tagline:
+    en_us: IPFS for MetaShare — find and share content with peers by CID
+    fr_fr: IPFS pour MetaShare — trouver et partager du contenu par CID
+
+  title:
+    en_us: MetaTransport · IPFS
+
+  icon: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaTransportIpfs/icon.png
+  thumbnail: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaTransportIpfs/thumbnail.png
+
+  store_app_id: metatransportipfs
+  is_uncontrolled: false
+
+  tips:
+    before_install:
+      en_us: |
+        **Install MetaShare first** — this plugin shares its storage and is
+        driven by it. MetaShare picks it up automatically within ~10 s; check
+        **MetaShare → Plugins**, where it shows as *live*.
+
+        Settings: **MetaShare → Plugins → ipfs → configure** (or this app's own
+        tile). Saving restarts the plugin to apply.
+
+# Maison (Yundera dashboard) configuration. Read in preference to x-casaos.
+x-compose-app:
+  schema_version: 2
+  folders:
+    - path: /DATA/AppData/metatransportipfs/state
+      user: $PUID
+      group: $PGID
+  # Same string as the caddy_0 label, so the tile link and the route agree.
+  webui-host: metatransportipfs-${domain}
+  webui-path: "/config"

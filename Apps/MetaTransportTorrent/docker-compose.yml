@@ -1,0 +1,167 @@
+name: metatransporttorrent
+
+# One of MetaShare's transport plugins (meta-transport-torrent). MetaShare (the
+# hull) reaches it at http://metashare-torrent:3000 over `pcs` — the default entry
+# in its plugin list — and probes it every 10 s, so installing or removing this
+# app takes effect with no other step. Manage it from MetaShare → Plugins.
+#
+# It shares MetaShare's data volume (same /data layout the monolith used: the
+# `tmp/` → `cache/` promote is one rename(2), and the hull reads plugin-written
+# files directly). Its own settings live in its state dir (config.json), edited
+# through MetaShare's dashboard.
+
+services:
+  metashare-torrent:
+    image: ghcr.io/worph/meta-transport-torrent:1.1.0
+    container_name: metashare-torrent
+    hostname: metashare-torrent
+    restart: unless-stopped
+    cpu_shares: 20
+    # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM instead of swap.
+    mem_limit: 1g
+    memswap_limit: 1g
+    # Clean redb / session shutdown on SIGTERM before docker escalates.
+    stop_grace_period: 30s
+    # Root, like MetaShare: the shared data volume is root-owned.
+    user: 0:0
+    expose:
+      - 3000   # transport contract (internal, reached by MetaShare only)
+    # BitTorrent peer port (librqbit). Must stay published on the host so
+    # other peers can connect for the torrents this node seeds.
+    ports:
+      - "4240:4240"
+    volumes:
+      - ${DATA_ROOT:-/DATA}/AppData/metashare/data:/data:rw
+      - ${DATA_ROOT:-/DATA}/AppData/metatransporttorrent/state:/state:rw
+    environment:
+      - META_SHARE_HULL_URL=http://metashare-app:3001
+      - TZ=$TZ
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+    networks:
+      - metatransporttorrent
+      - pcs
+
+  # OIDC perimeter in front of the plugin's own config page (the tile link).
+  # MetaShare's dashboard embeds the same page through its own proxy.
+  metatransporttorrent:
+    image: ghcr.io/yundera/appshield:2.0.9
+    cpu_shares: 80
+    container_name: metatransporttorrent
+    hostname: metatransporttorrent
+    restart: unless-stopped
+    user: "0:0"
+    expose:
+      - 80
+    environment:
+      OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
+      REDIRECT_HOST_SUFFIXES: "${APP_DOMAIN},${APP_PUBLIC_IP_DASH}.nip.io,${APP_PUBLIC_IP_DASH}.sslip.io"
+      BACKEND_HOST: "metashare-torrent"
+      BACKEND_PORT: "3000"
+      LISTEN_PORT: "80"
+    labels:
+      caddy_0: metatransporttorrent-${APP_DOMAIN}
+      caddy_0.import: gateway_tls
+      caddy_0.reverse_proxy: "{{upstreams 80}}"
+      caddy_1: metatransporttorrent-${APP_PUBLIC_IP_DASH}.nip.io
+      caddy_1.import: gateway_tls
+      caddy_1.reverse_proxy: "{{upstreams 80}}"
+      caddy_2: metatransporttorrent-${APP_PUBLIC_IP_DASH}.sslip.io
+      caddy_2.reverse_proxy: "{{upstreams 80}}"
+    depends_on:
+      - metashare-torrent
+    networks:
+      - metatransporttorrent
+      - pcs
+
+networks:
+  metatransporttorrent:
+    name: metatransporttorrent
+    driver: bridge
+  pcs:
+    name: ${APP_NET:-pcs}
+    external: true
+
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  author: Worph Team
+  category: Media
+  tags: ["media"]
+  developer: Aptero Team
+  main: metatransporttorrent
+  webui_port: 80
+  index: /config
+
+  description:
+    en_us: |
+      **BitTorrent transport for MetaShare.**
+
+      Lets MetaShare fetch torrent content **by byte range**, so a video starts
+      playing in seconds and seeks without downloading the whole file first. What
+      a viewer genuinely watches is completed in the background and **seeded**
+      back to the swarm (watch-commit).
+
+      **One of MetaShare's transport plugins** — each protocol is its own app, so
+      you install only the ones you want, and a competing implementation can
+      replace this one. MetaShare finds it automatically once installed; manage
+      and configure it from **MetaShare → Plugins** (watch-commit, disk floor,
+      timeouts).
+
+      **Requires:** **MetaShare** (it shares MetaShare's storage).
+
+      **Port 4240 (TCP)** is published so other peers can reach the torrents
+      you seed.
+
+    fr_fr: |
+      **Transport BitTorrent pour MetaShare.**
+
+      Permet à MetaShare de récupérer un torrent **par plages d'octets** : la vidéo
+      démarre en quelques secondes et se parcourt sans tout télécharger. Ce qui est
+      réellement regardé est complété en arrière-plan puis **partagé** sur le swarm.
+
+      **Un des plugins de transport de MetaShare** — chaque protocole est une app à
+      part. MetaShare le détecte dès l'installation ; gestion et réglages dans
+      **MetaShare → Plugins**.
+
+      **Nécessite :** **MetaShare** (il partage son stockage). Le **port 4240** est
+      publié pour les pairs distants.
+
+  tagline:
+    en_us: BitTorrent for MetaShare — stream torrents by range, seed what you watch
+    fr_fr: BitTorrent pour MetaShare — lecture de torrents par plages, partage de ce que vous regardez
+
+  title:
+    en_us: MetaTransport · BitTorrent
+
+  icon: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaTransportTorrent/icon.png
+  thumbnail: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaTransportTorrent/thumbnail.png
+
+  store_app_id: metatransporttorrent
+  is_uncontrolled: false
+
+  tips:
+    before_install:
+      en_us: |
+        **Install MetaShare first** — this plugin shares its storage and is
+        driven by it. MetaShare picks it up automatically within ~10 s; check
+        **MetaShare → Plugins**, where it shows as *live*.
+
+        Settings: **MetaShare → Plugins → torrent → configure** (or this app's own
+        tile). Saving restarts the plugin to apply.
+
+# Maison (Yundera dashboard) configuration. Read in preference to x-casaos.
+x-compose-app:
+  schema_version: 2
+  folders:
+    - path: /DATA/AppData/metatransporttorrent/state
+      user: $PUID
+      group: $PGID
+  # Same string as the caddy_0 label, so the tile link and the route agree.
+  webui-host: metatransporttorrent-${domain}
+  webui-path: "/config"

@@ -1,0 +1,158 @@
+name: metatransportnzb
+
+# One of MetaShare's transport plugins (meta-transport-nzb). MetaShare (the
+# hull) reaches it at http://metashare-nzb:3000 over `pcs` — the default entry
+# in its plugin list — and probes it every 10 s, so installing or removing this
+# app takes effect with no other step. Manage it from MetaShare → Plugins.
+#
+# It shares MetaShare's data volume (same /data layout the monolith used: the
+# `tmp/` → `cache/` promote is one rename(2), and the hull reads plugin-written
+# files directly). Its own settings live in its state dir (config.json), edited
+# through MetaShare's dashboard.
+
+services:
+  metashare-nzb:
+    image: ghcr.io/worph/meta-transport-nzb:1.1.0
+    container_name: metashare-nzb
+    hostname: metashare-nzb
+    restart: unless-stopped
+    cpu_shares: 20
+    # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM instead of swap.
+    mem_limit: 3g
+    memswap_limit: 3g
+    # Clean redb / session shutdown on SIGTERM before docker escalates.
+    stop_grace_period: 30s
+    # Root, like MetaShare: the shared data volume is root-owned.
+    user: 0:0
+    expose:
+      - 3000   # transport contract (internal, reached by MetaShare only)
+    volumes:
+      - ${DATA_ROOT:-/DATA}/AppData/metashare/data:/data:rw
+      - ${DATA_ROOT:-/DATA}/AppData/metatransportnzb/state:/state:rw
+    environment:
+      - META_SHARE_HULL_URL=http://metashare-app:3001
+      - TZ=$TZ
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+    networks:
+      - metatransportnzb
+      - pcs
+
+  # OIDC perimeter in front of the plugin's own config page (the tile link).
+  # MetaShare's dashboard embeds the same page through its own proxy.
+  metatransportnzb:
+    image: ghcr.io/yundera/appshield:2.0.9
+    cpu_shares: 80
+    container_name: metatransportnzb
+    hostname: metatransportnzb
+    restart: unless-stopped
+    user: "0:0"
+    expose:
+      - 80
+    environment:
+      OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
+      REDIRECT_HOST_SUFFIXES: "${APP_DOMAIN},${APP_PUBLIC_IP_DASH}.nip.io,${APP_PUBLIC_IP_DASH}.sslip.io"
+      BACKEND_HOST: "metashare-nzb"
+      BACKEND_PORT: "3000"
+      LISTEN_PORT: "80"
+    labels:
+      caddy_0: metatransportnzb-${APP_DOMAIN}
+      caddy_0.import: gateway_tls
+      caddy_0.reverse_proxy: "{{upstreams 80}}"
+      caddy_1: metatransportnzb-${APP_PUBLIC_IP_DASH}.nip.io
+      caddy_1.import: gateway_tls
+      caddy_1.reverse_proxy: "{{upstreams 80}}"
+      caddy_2: metatransportnzb-${APP_PUBLIC_IP_DASH}.sslip.io
+      caddy_2.reverse_proxy: "{{upstreams 80}}"
+    depends_on:
+      - metashare-nzb
+    networks:
+      - metatransportnzb
+      - pcs
+
+networks:
+  metatransportnzb:
+    name: metatransportnzb
+    driver: bridge
+  pcs:
+    name: ${APP_NET:-pcs}
+    external: true
+
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  author: Worph Team
+  category: Media
+  tags: ["media"]
+  developer: Aptero Team
+  main: metatransportnzb
+  webui_port: 80
+  index: /config
+
+  description:
+    en_us: |
+      **Usenet (NZB) transport for MetaShare.**
+
+      Streams Usenet releases progressively over **your NNTP provider** (yEnc,
+      par2 repair, RAR sets), so playback starts before the download ends.
+
+      **One of MetaShare's transport plugins.** Configure your provider from
+      **MetaShare → Plugins → nzb → configure** (host, port, user, password,
+      connections). Without a provider it stays installed but idle, and MetaShare
+      forwards Usenet requests to a gateway on the mesh instead. An existing
+      MetaShare's provider settings are imported automatically on first start.
+
+      **Requires:** **MetaShare** (it shares MetaShare's storage). Usenet is
+      fetch-only: this plugin does not seed. Uses up to ~3 GB RAM while a
+      release downloads.
+
+    fr_fr: |
+      **Transport Usenet (NZB) pour MetaShare.**
+
+      Lit les releases Usenet progressivement via **votre fournisseur NNTP** (yEnc,
+      réparation par2, archives RAR).
+
+      **Un des plugins de transport de MetaShare.** Le fournisseur se configure dans
+      **MetaShare → Plugins → nzb → configure**. Les réglages d'un MetaShare existant
+      sont importés au premier démarrage.
+
+      **Nécessite :** **MetaShare**. Jusqu'à ~3 Go de RAM pendant un téléchargement.
+
+  tagline:
+    en_us: Usenet for MetaShare — stream NZB releases from your provider
+    fr_fr: Usenet pour MetaShare — lecture des releases NZB depuis votre fournisseur
+
+  title:
+    en_us: MetaTransport · Usenet
+
+  icon: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaTransportNzb/icon.png
+  thumbnail: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaTransportNzb/thumbnail.png
+
+  store_app_id: metatransportnzb
+  is_uncontrolled: false
+
+  tips:
+    before_install:
+      en_us: |
+        **Install MetaShare first** — this plugin shares its storage and is
+        driven by it. MetaShare picks it up automatically within ~10 s; check
+        **MetaShare → Plugins**, where it shows as *live*.
+
+        Settings: **MetaShare → Plugins → nzb → configure** (or this app's own
+        tile). Saving restarts the plugin to apply.
+
+# Maison (Yundera dashboard) configuration. Read in preference to x-casaos.
+x-compose-app:
+  schema_version: 2
+  folders:
+    - path: /DATA/AppData/metatransportnzb/state
+      user: $PUID
+      group: $PGID
+  # Same string as the caddy_0 label, so the tile link and the route agree.
+  webui-host: metatransportnzb-${domain}
+  webui-path: "/config"
