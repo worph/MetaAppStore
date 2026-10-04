@@ -60,7 +60,7 @@ services:
   # peer count before suspecting the feeders.
   # ---------------------------------------------------------------------------
   metaread-search:
-    image: ghcr.io/worph/meta-search:1.2.6
+    image: ghcr.io/worph/meta-search:1.2.7
     container_name: metaread-search
     # 2g, not the self-contained listing's 1g: on the shared core it indexes the
     # gateway box's whole catalogue (~830 MiB steady state on watch.nsl.sh).
@@ -127,7 +127,7 @@ services:
   # User Data Layer.
   # ---------------------------------------------------------------------------
   metaread-app:
-    image: ghcr.io/worph/meta-read:1.0.8
+    image: ghcr.io/worph/meta-read:1.0.9
     container_name: metaread-app
     hostname: metaread-app
     restart: unless-stopped

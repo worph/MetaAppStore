@@ -16,7 +16,7 @@ name: metatransportipfs
 
 services:
   metashare-ipfs:
-    image: ghcr.io/worph/meta-transport-ipfs:1.1.0
+    image: ghcr.io/worph/meta-transport-ipfs:1.2.0
     container_name: metashare-ipfs
     hostname: metashare-ipfs
     restart: unless-stopped
@@ -39,6 +39,9 @@ services:
       - ${DATA_ROOT:-/DATA}/AppData/metatransportipfs/state:/state:rw
     environment:
       - META_SHARE_HULL_URL=http://metashare-app:3001
+      # Beacon v2: this plugin bind-mounts MetaShare's /data, so only that hull
+      # may list it — another meta-share on `pcs` (metawatch-share) ignores it.
+      - BEACON_BINDS=metashare-app
       # Advertise the routable address so provider records + identify carry a
       # dialable multiaddr. ${APP_PUBLIC_IPV4}, NOT ${APP_PUBLIC_IP}: on an
       # IPv6-primary PCS the latter holds a v6 address, and /ip4/<v6>/… is not a

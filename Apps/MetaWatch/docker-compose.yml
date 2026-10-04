@@ -29,7 +29,7 @@ services:
   metawatch-core:
     # 1.0.1 carries the identity API (commit 52f5b5c) required for MetaWatch
     # sign-in / keypair generation; 1.0.0 predates it.
-    image: ghcr.io/worph/meta-core:1.0.22
+    image: ghcr.io/worph/meta-core:1.0.23
     container_name: metawatch-core
     # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
     # instead of swap. Mirrors the dev sub-stack limits.
@@ -72,7 +72,7 @@ services:
     # RSA-keyed bootstrap.libp2p.io nodes) and therefore to DISCOVER remote
     # gateways via the kad `metamesh-gateway` provider namespace. Without it
     # this peer only ever sees same-host mDNS peers.
-    image: ghcr.io/worph/meta-search:1.2.6
+    image: ghcr.io/worph/meta-search:1.2.7
     container_name: metawatch-search
     # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
     # instead of swap. Mirrors the dev sub-stack limits.

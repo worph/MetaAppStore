@@ -2,7 +2,7 @@ name: metastremio
 
 services:
   metastremio:
-    image: ghcr.io/worph/meta-stremio:1.1.2
+    image: ghcr.io/worph/meta-stremio:1.1.3
     cpu_shares: 50
     container_name: metastremio
     restart: unless-stopped

@@ -45,7 +45,7 @@ services:
   # core of its own.
   # ---------------------------------------------------------------------------
   metawatch-search:
-    image: ghcr.io/worph/meta-search:1.2.6
+    image: ghcr.io/worph/meta-search:1.2.7
     container_name: metawatch-search
     hostname: metawatch-search
     restart: unless-stopped
