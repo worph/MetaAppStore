@@ -16,7 +16,7 @@ name: metatransportnzb
 
 services:
   metashare-nzb:
-    image: ghcr.io/worph/meta-transport-nzb:1.2.1
+    image: ghcr.io/worph/meta-transport-nzb:1.2.3
     container_name: metashare-nzb
     hostname: metashare-nzb
     restart: unless-stopped

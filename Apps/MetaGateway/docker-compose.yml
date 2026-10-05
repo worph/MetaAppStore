@@ -129,7 +129,7 @@ services:
     # mDNS, bitswap), the blockstore, gateway discovery and the peer directory
     # the hull uses to forward Usenet cids. Waits up to 60 s for the hull's
     # internal /health before opening blocks.redb, so no depends_on.
-    image: ghcr.io/worph/meta-transport-ipfs:1.2.1
+    image: ghcr.io/worph/meta-transport-ipfs:1.2.2
     container_name: metagateway-share-ipfs
     hostname: metagateway-share-ipfs
     restart: unless-stopped
