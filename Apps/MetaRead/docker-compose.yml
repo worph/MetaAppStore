@@ -154,7 +154,7 @@ services:
     # MetaShare app's `metashare-<tier>` hostnames, which on a shared `pcs`
     # would be ANOTHER hull's plugins writing to another /data).
     #  - 3000  HTTP API   - 3001  plugin callback API (internal only)
-    image: ghcr.io/worph/meta-share:2.3.0
+    image: ghcr.io/worph/meta-share:2.4.0
     container_name: metaread-share
     # The swarm and blockstore moved to the ipfs plugin, so the hull needs far
     # less than the monolith did.
@@ -202,7 +202,7 @@ services:
     # mDNS, bitswap), the blockstore, gateway discovery and the peer directory
     # the hull uses to forward Usenet cids. Waits up to 60 s for the hull's
     # internal /health before opening blocks.redb, so no depends_on.
-    image: ghcr.io/worph/meta-transport-ipfs:1.2.2
+    image: ghcr.io/worph/meta-transport-ipfs:1.3.0
     container_name: metaread-share-ipfs
     hostname: metaread-share-ipfs
     restart: unless-stopped

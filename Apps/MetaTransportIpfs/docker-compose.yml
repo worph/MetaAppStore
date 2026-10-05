@@ -16,7 +16,7 @@ name: metatransportipfs
 
 services:
   metashare-ipfs:
-    image: ghcr.io/worph/meta-transport-ipfs:1.2.2
+    image: ghcr.io/worph/meta-transport-ipfs:1.3.0
     container_name: metashare-ipfs
     hostname: metashare-ipfs
     restart: unless-stopped
@@ -42,6 +42,11 @@ services:
       # Beacon v2: this plugin bind-mounts MetaShare's /data, so only that hull
       # may list it — another meta-share on `pcs` (metawatch-share) ignores it.
       - BEACON_BINDS=metashare-app
+      # The local gateway, reached over HTTP: resolves NZB and subtitle pointers
+      # even when the libp2p link to it is down. Harmless when no MetaGateway is
+      # installed (the caps fetch just fails); remote gateways still come from
+      # the swarm.
+      - META_SHARE_GATEWAY_URLS=http://metagateway-app:3000
       # Advertise the routable address so provider records + identify carry a
       # dialable multiaddr. ${APP_PUBLIC_IPV4}, NOT ${APP_PUBLIC_IP}: on an
       # IPv6-primary PCS the latter holds a v6 address, and /ip4/<v6>/… is not a
