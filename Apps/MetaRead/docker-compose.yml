@@ -86,7 +86,7 @@ services:
   # peer count before suspecting the feeders.
   # ---------------------------------------------------------------------------
   metaread-search:
-    image: ghcr.io/worph/meta-search:1.2.7
+    image: ghcr.io/worph/meta-search:1.2.8
     container_name: metaread-search
     mem_limit: 1g
     memswap_limit: 1g

@@ -72,7 +72,7 @@ services:
     # RSA-keyed bootstrap.libp2p.io nodes) and therefore to DISCOVER remote
     # gateways via the kad `metamesh-gateway` provider namespace. Without it
     # this peer only ever sees same-host mDNS peers.
-    image: ghcr.io/worph/meta-search:1.2.7
+    image: ghcr.io/worph/meta-search:1.2.8
     container_name: metawatch-search
     # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM
     # instead of swap. Mirrors the dev sub-stack limits.
@@ -250,7 +250,7 @@ services:
   # My List + Continue Watching persist in /DATA/AppData/metawatch/data.
   # ---------------------------------------------------------------------------
   metawatch-app:
-    image: ghcr.io/worph/meta-watch:1.0.74
+    image: ghcr.io/worph/meta-watch:1.0.81
     container_name: metawatch-app
     hostname: metawatch-app
     restart: unless-stopped
