@@ -1,0 +1,205 @@
+name: metafeederstremio
+
+# =============================================================================
+# MetaFeeder · Stremio — Stremio addons (AIOStreams, Torrentio, …) as a torrent
+# source for MetaMesh.
+#
+# Same model as MetaFeeder · Prowlarr: this app is only the GLUE. The source is a
+# separate app — **AIOStreams** (Yundera store, container `aiostreams:3000`) is
+# the recommended one: a single addon URL that aggregates Torrentio, Comet,
+# MediaFusion, … Any addon speaking the Stremio protocol works, including
+# Torrentio's public link.
+#
+# Answers id-anchored queries only, the three shapes MetaWatch sends:
+#   film     `tmdbid:603 contentKind:movie`
+#   season   `tmdbid:1399 season:1`           (one addon call per episode)
+#   episode  `tmdbid:1399 season:1 episode:2`
+# (`imdbid:` works in place of `tmdbid:`). Each P2P stream is one per-file
+# BitTorrent record — infoHash + fileIdx, i.e. the exact episode inside a season
+# pack — that MetaTransport · Torrent plays with no .torrent file.
+#
+# ⚠ P2P ONLY. Configure AIOStreams WITHOUT a debrid service. Debrid links are
+# personal, expiring and carry your token: this feeder drops them, and the
+# gateway must never relay one user's debrid account to the mesh. Debrid will be
+# a client-side MetaShare option instead.
+#
+# Self-contained: calls the addons and TMDB directly, holds no bytes, runs no
+# enrichment sidecars, does NOT talk to meta-core — the MetaGateway core stores
+# and announces the records it returns.
+#
+# It needs, over the shared `pcs` network:
+#   - the **MetaGateway** app — which must list this feeder's URL
+#     (`http://metafeederstremio-feeder:8080`) in its feeders config. Discovery
+#     is startup-only, so restart the gateway afterwards.
+#   - an addon (AIOStreams app, or a public addon URL).
+#
+# Everything is scoped under the `metafeederstremio-*` prefix +
+# /DATA/AppData/metafeederstremio/ data root, so it installs alongside the other
+# Meta* apps with zero collisions.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # metafeederstremio-feeder — the feeder (meta-feeder-stremio) hosting the
+  # `stremio` upstream. The gateway core reaches it directly on `pcs` for
+  # discovery/query; the human configures it from the MetaGateway dashboard
+  # (configure panel).
+  # ---------------------------------------------------------------------------
+  metafeederstremio-feeder:
+    image: ghcr.io/worph/meta-feeder-stremio:1.0.0
+    cpu_shares: 30
+    container_name: metafeederstremio-feeder
+    # Hard RAM cap, swap disabled (memswap_limit == mem_limit) → OOM instead of
+    # swap. One HTTP client + in-memory TMDB/record caches.
+    mem_limit: 256m
+    memswap_limit: 256m
+    hostname: metafeederstremio-feeder
+    restart: unless-stopped
+    # Its only write is its own state dir below, which Maison creates as
+    # $PUID:$PGID (x-compose-app.folders). So no root is needed.
+    user: $PUID:$PGID
+    expose:
+      - 8080
+    environment:
+      # INFRA-ONLY env (the "config: no env if in webui" rule). The addon URLs and
+      # the TMDB token are read from the persisted config.json written by this
+      # feeder's config page (opened from the MetaGateway dashboard). The
+      # STREMIO_ADDON_URLS / TMDB_TOKEN env vars exist only as first-boot seeds;
+      # don't set them here.
+      RUST_LOG: "info"
+      TZ: "$TZ"
+    volumes:
+      # Persist feeder config (config.json saved via the config UI).
+      - ${DATA_ROOT:-/DATA}/AppData/metafeederstremio/state:/data/meta-feeder:rw
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - pcs
+networks:
+  pcs:
+    name: ${APP_NET:-pcs}
+    external: true
+
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  author: Worph Team
+  category: Media
+  developer: Aptero Team
+
+  description:
+    en_us: |
+      **Stremio addons as a MetaMesh source — AIOStreams, Torrentio and friends.**
+
+      MetaFeeder · Stremio asks your Stremio addons for the torrents of a film or
+      an episode, and turns each one into a MetaMesh release that **MetaWatch**
+      can play. The addons have already done the hard matching work: every
+      result points at the **exact file** — the right episode inside a season
+      pack or a complete-series torrent — so nothing is guessed from release
+      names.
+
+      **Use it with AIOStreams** (one link that aggregates Torrentio, Comet,
+      MediaFusion, …) or paste any addon's install link — Torrentio's public link
+      works too.
+
+      **Torrent (P2P) streams only.** Set up AIOStreams **without** a debrid
+      service: debrid links are personal and expire, so this feeder ignores
+      them rather than share your account with the mesh.
+
+      **Fast and self-contained:** an addon answers in about a second, results
+      stream in as they arrive, nothing is stored here and no enrichment
+      sidecars run. ~256 MB RAM.
+
+      **Requires:** **MetaGateway** — its meta-core stores the results and
+      announces them to the swarm; the gateway must list this feeder in its
+      config. A free **TMDB** token gives releases their poster and summary.
+
+      **Pairs with:** **AIOStreams**, **MetaWatch**, **MetaTransport · Torrent**.
+
+    fr_fr: |
+      **Les addons Stremio comme source MetaMesh — AIOStreams, Torrentio et autres.**
+
+      MetaFeeder · Stremio demande à vos addons Stremio les torrents d'un film ou
+      d'un épisode, et transforme chacun en une release MetaMesh que
+      **MetaWatch** peut lire. Les addons ont déjà fait le travail de
+      correspondance : chaque résultat désigne le **fichier exact** — le bon
+      épisode dans un pack de saison ou une intégrale — rien n'est deviné à
+      partir des noms de release.
+
+      **À utiliser avec AIOStreams** (un seul lien qui agrège Torrentio, Comet,
+      MediaFusion, …) ou collez le lien d'installation de n'importe quel addon —
+      le lien public de Torrentio fonctionne aussi.
+
+      **Flux torrent (P2P) uniquement.** Configurez AIOStreams **sans** service
+      de debrid : les liens debrid sont personnels et expirent, ce feeder les
+      ignore plutôt que de partager votre compte avec le mesh.
+
+      **Rapide et autonome :** un addon répond en une seconde environ, les
+      résultats arrivent au fil de l'eau, rien n'est stocké ici, aucun plugin
+      d'enrichissement. ~256 Mo de RAM.
+
+      **Nécessite :** l'app **MetaGateway** (son meta-core stocke et annonce les
+      résultats ; la passerelle doit lister ce feeder dans sa configuration). Un
+      jeton **TMDB** gratuit donne aux releases leur affiche et leur résumé.
+
+  tagline:
+    en_us: Stremio addons (AIOStreams, Torrentio) as a torrent source — exact file per episode
+    fr_fr: Addons Stremio (AIOStreams, Torrentio) comme source torrent — le fichier exact par épisode
+
+  title:
+    en_us: MetaFeeder · Stremio
+
+  icon: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaFeederStremio/icon.png
+  thumbnail: https://cdn.jsdelivr.net/gh/Worph/MetaAppStore@main/Apps/MetaFeederStremio/thumbnail.png
+
+  store_app_id: metafeederstremio
+  is_uncontrolled: false
+
+  tips:
+    before_install:
+      en_us: |
+        **Install order:** **MetaGateway** first, then **AIOStreams** (Yundera
+        store) if you use it.
+
+        **After installing this app:**
+        1. In **AIOStreams**, build a configuration **without any debrid
+           service** (torrent/P2P addons only, e.g. Torrentio), save it and copy
+           its install link (`…/manifest.json`). From inside the PCS you can use
+           the internal form `http://aiostreams:3000/stremio/…/manifest.json`.
+        2. Open this feeder's config panel (the **MetaGateway** dashboard → this
+           feeder → *configure*), paste the link into **Stremio addon URLs** (one
+           per line), add your **TMDB token** (v4 read token from
+           themoviedb.org → Settings → API) and save. The feeder restarts itself.
+        3. In **MetaGateway**, add this feeder to its feeders config — name
+           `stremio-feeder`, URL `http://metafeederstremio-feeder:8080` — from
+           the gateway dashboard's *Add a feeder* box. The gateway restarts
+           itself and picks up the `stremio` upstream.
+
+        **Without an addon URL** the feeder stays up but reports degraded and
+        answers nothing. **Without a TMDB token** it answers only `imdbid:`
+        searches and releases have no poster — MetaWatch sends `tmdbid:`.
+
+        **Only film and episode lookups reach it** (a title, season or episode
+        page). The free-text search box never does: addons cannot search by text.
+
+        **No web UI of its own:** configure it from the **MetaGateway** dashboard
+        → this feeder → *configure* (the gateway proxies this feeder's config
+        page, behind the gateway's login).
+
+# Maison (Yundera dashboard) configuration. Read in preference to x-casaos.
+# schema_version 2 is required for `folders`: an older Maison refuses the app
+# outright rather than starting it without its directories.
+x-compose-app:
+  schema_version: 2
+  # Created and chowned by Maison before any image is pulled, before any hook
+  # runs and before the containers start — on the first boot and every one after.
+  # The feeder runs as $PUID:$PGID, so this ownership is what lets it write.
+  folders:
+    - path: /DATA/AppData/metafeederstremio/state
+      user: $PUID
+      group: $PGID

@@ -127,6 +127,7 @@ APPS = {
  "MetaFeederJamendo": ("JAMENDO", "note", ORANGE),
  "MetaFeederMusicBrainz": ("MUSICBRAINZ", "disc", ORANGE),
  "MetaFeederYouTube": ("YOUTUBE", "video", ORANGE),
+ "MetaFeederStremio": ("STREMIO", "play", ORANGE),
  # MetaPlugin family — headless enrichment workers, blue ring.
  "MetaPluginFileInfo": ("FILE INFO", "fileinfo", BLUE),
  "MetaPluginFFmpeg": ("FFMPEG", "film", BLUE),
